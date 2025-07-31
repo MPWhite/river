@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -313,11 +314,12 @@ func (m model) View() string {
 			// Show cursor on current line
 			if m.cursor.col < len(line) {
 				s.WriteString(line[:m.cursor.col])
-				s.WriteString("█")
+				// Blinking cursor effect
+				s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#FF1493")).Bold(true).Render("│"))
 				s.WriteString(line[m.cursor.col:])
 			} else {
 				s.WriteString(line)
-				s.WriteString("█")
+				s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#FF1493")).Bold(true).Render("│"))
 			}
 		} else {
 			s.WriteString(line)
@@ -328,23 +330,66 @@ func (m model) View() string {
 	// Add empty lines to fill viewport
 	linesShown := len(m.content)
 	if m.viewport.height > 0 {
-		for i := linesShown; i < m.viewport.height; i++ {
+		for i := linesShown; i < m.viewport.height-2; i++ { // -2 for status bar
 			s.WriteString("~\n")
 		}
 	}
 
-	// Status bar
-	modifiedIndicator := ""
-	if m.modified {
-		modifiedIndicator = " [modified]"
+	// Calculate word count
+	wordCount := 0
+	for _, line := range m.content {
+		words := strings.Fields(line)
+		wordCount += len(words)
+	}
+
+	// Format typing time (minutes only)
+	minutes := int(m.typingTime.Minutes())
+	timeStr := fmt.Sprintf("%dm", minutes)
+	
+	// Create progress bar
+	targetWords := 500
+	progress := float64(wordCount) / float64(targetWords)
+	if progress > 1.0 {
+		progress = 1.0
 	}
 	
-	// Format typing time
-	minutes := int(m.typingTime.Minutes())
-	seconds := int(m.typingTime.Seconds()) % 60
+	// Calculate available width for progress bar
+	// Format: "XXX/500    [████████████████████]    Xm"
+	leftText := fmt.Sprintf("%d/%d", wordCount, targetWords)
+	rightText := fmt.Sprintf("%s", timeStr)
+	padding := "    " // 4 spaces padding
+	availableWidth := m.viewport.width - len(leftText) - len(rightText) - len(padding)*2 - 2 // -2 for brackets
 	
-	s.WriteString(fmt.Sprintf("\n%s%s [%d:%02d] [Line %d, Col %d] Ctrl+S to save, Ctrl+C to quit", 
-		filepath.Base(m.filename), modifiedIndicator, minutes, seconds, m.cursor.row+1, m.cursor.col+1))
+	if availableWidth < 10 {
+		availableWidth = 10 // minimum bar width
+	}
+	
+	filledWidth := int(progress * float64(availableWidth))
+	
+	// Create subtle progress bar
+	var progressBar strings.Builder
+	progressBar.WriteString("[")
+	
+	// Use subtle but visible characters and colors
+	for i := 0; i < availableWidth; i++ {
+		if i < filledWidth {
+			// Slightly brighter for filled portion with a pink tint
+			progressBar.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#AA6688")).Render("━"))
+		} else {
+			progressBar.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#444444")).Render("─"))
+		}
+	}
+	progressBar.WriteString("]")
+	
+	// Style the components with slightly more visible colors
+	leftStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#999999"))
+	rightStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#999999"))
+	
+	// Combine into status bar
+	statusBar := leftStyle.Render(leftText) + padding + progressBar.String() + padding + rightStyle.Render(rightText)
+	
+	s.WriteString("\n")
+	s.WriteString(statusBar)
 
 	return s.String()
 }
