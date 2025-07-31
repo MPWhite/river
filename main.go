@@ -395,6 +395,18 @@ func (m model) View() string {
 }
 
 func main() {
+	// Check for command line arguments
+	if len(os.Args) > 1 && os.Args[1] == "--stats" {
+		// Run stats view
+		p := tea.NewProgram(initStatsModel(), tea.WithAltScreen())
+		if _, err := p.Run(); err != nil {
+			fmt.Printf("Error: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
+	
+	// Default behavior - run the note editor
 	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error: %v", err)
