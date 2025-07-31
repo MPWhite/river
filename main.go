@@ -8,14 +8,19 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/pelletier/go-toml/v2"
 )
 
 type model struct {
-	content    []string
-	cursor     position
-	viewport   viewport
-	filename   string
-	modified   bool
+	content      []string
+	cursor       position
+	viewport     viewport
+	filename     string
+	modified     bool
+	lastActivity time.Time
+	typingTime   time.Duration
+	startTime    time.Time
+	statsFile    string
 }
 
 type position struct {
@@ -26,6 +31,19 @@ type position struct {
 type viewport struct {
 	width  int
 	height int
+}
+
+type stats struct {
+	TypingSeconds int `toml:"typing_seconds"`
+	WordCount     int `toml:"word_count"`
+}
+
+type tickMsg time.Time
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
 }
 
 func loadOrCreateTodayFile() ([]string, string, error) {
@@ -39,7 +57,7 @@ func loadOrCreateTodayFile() ([]string, string, error) {
 	riverDir := filepath.Join(homeDir, "river", "notes")
 	filename := filepath.Join(riverDir, today+".md")
 	
-	// Ensure .river directory exists
+	// Ensure river/notes directory exists
 	if err := os.MkdirAll(riverDir, 0755); err != nil {
 		return nil, "", err
 	}
@@ -61,6 +79,44 @@ func loadOrCreateTodayFile() ([]string, string, error) {
 	}
 	
 	return lines, filename, nil
+}
+
+func loadStats(statsFile string) (time.Duration, error) {
+	data, err := os.ReadFile(statsFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	
+	var s stats
+	if err := toml.Unmarshal(data, &s); err != nil {
+		return 0, err
+	}
+	
+	return time.Duration(s.TypingSeconds) * time.Second, nil
+}
+
+func saveStats(statsFile string, typingTime time.Duration, content []string) error {
+	// Count words
+	wordCount := 0
+	for _, line := range content {
+		words := strings.Fields(line)
+		wordCount += len(words)
+	}
+	
+	s := stats{
+		TypingSeconds: int(typingTime.Seconds()),
+		WordCount:     wordCount,
+	}
+	
+	data, err := toml.Marshal(s)
+	if err != nil {
+		return err
+	}
+	
+	return os.WriteFile(statsFile, data, 0644)
 }
 
 func saveFile(filename string, content []string) error {
@@ -90,40 +146,67 @@ func initialModel() model {
 		lastCol = 0
 	}
 	
+	// Create stats filename
+	today := time.Now().Format("2006-01-02")
+	dir := filepath.Dir(filename)
+	statsFile := filepath.Join(dir, ".stats-"+today+".toml")
+	
+	// Load existing typing time
+	existingTime, _ := loadStats(statsFile)
+	
+	now := time.Now()
 	return model{
-		content:  content,
-		cursor:   position{lastRow, lastCol},
-		filename: filename,
-		modified: false,
+		content:      content,
+		cursor:       position{lastRow, lastCol},
+		filename:     filename,
+		modified:     false,
+		lastActivity: now,
+		typingTime:   existingTime,
+		startTime:    now,
+		statsFile:    statsFile,
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	return nil
+	return tickCmd()
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tickMsg:
+		// Check if we should update typing time
+		if time.Since(m.lastActivity) < time.Minute {
+			// Still active, add time since last tick
+			m.typingTime += time.Second
+		}
+		return m, tickCmd()
+
 	case tea.WindowSizeMsg:
 		m.viewport.width = msg.Width
 		m.viewport.height = msg.Height - 2 // Leave room for status bar
 
 	case tea.KeyMsg:
+		// Update last activity time for any key press
+		m.lastActivity = time.Now()
+		
 		switch msg.Type {
 		case tea.KeyCtrlC:
+			// Save file and stats before quitting
 			if m.modified {
-				// Save before quitting
 				if err := saveFile(m.filename, m.content); err != nil {
 					// Could add error handling here
 				}
 			}
+			// Always save stats
+			saveStats(m.statsFile, m.typingTime, m.content)
 			return m, tea.Quit
 
 		case tea.KeyCtrlS:
-			// Save file
+			// Save file and stats
 			if err := saveFile(m.filename, m.content); err == nil {
 				m.modified = false
 			}
+			saveStats(m.statsFile, m.typingTime, m.content)
 
 		case tea.KeyUp:
 			if m.cursor.row > 0 {
@@ -255,8 +338,13 @@ func (m model) View() string {
 	if m.modified {
 		modifiedIndicator = " [modified]"
 	}
-	s.WriteString(fmt.Sprintf("\n%s%s [Line %d, Col %d] Ctrl+S to save, Ctrl+C to quit", 
-		filepath.Base(m.filename), modifiedIndicator, m.cursor.row+1, m.cursor.col+1))
+	
+	// Format typing time
+	minutes := int(m.typingTime.Minutes())
+	seconds := int(m.typingTime.Seconds()) % 60
+	
+	s.WriteString(fmt.Sprintf("\n%s%s [%d:%02d] [Line %d, Col %d] Ctrl+S to save, Ctrl+C to quit", 
+		filepath.Base(m.filename), modifiedIndicator, minutes, seconds, m.cursor.row+1, m.cursor.col+1))
 
 	return s.String()
 }
