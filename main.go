@@ -76,9 +76,23 @@ func initialModel() model {
 		filename = "error.txt"
 	}
 	
+	// Position cursor at the end of the file
+	lastRow := len(content) - 1
+	if lastRow < 0 {
+		lastRow = 0
+	}
+	lastCol := len(content[lastRow])
+	
+	// If the last line has content, add a new empty line and position cursor there
+	if lastRow >= 0 && len(content[lastRow]) > 0 {
+		content = append(content, "")
+		lastRow++
+		lastCol = 0
+	}
+	
 	return model{
 		content:  content,
-		cursor:   position{0, 0},
+		cursor:   position{lastRow, lastCol},
 		filename: filename,
 		modified: false,
 	}
