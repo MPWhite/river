@@ -308,8 +308,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) View() string {
 	var s strings.Builder
 
-	// Display content with cursor
-	for i, line := range m.content {
+	// Calculate viewport bounds
+	maxContentHeight := m.viewport.height - 2 // Reserve 2 lines for status bar
+	if maxContentHeight < 1 {
+		maxContentHeight = 1
+	}
+
+	// Calculate scroll offset to keep cursor visible
+	var scrollOffset int
+	if m.cursor.row >= maxContentHeight {
+		scrollOffset = m.cursor.row - maxContentHeight + 1
+	}
+
+	// Display visible content lines
+	visibleLines := 0
+	for i := scrollOffset; i < len(m.content) && visibleLines < maxContentHeight; i++ {
+		line := m.content[i]
+		
 		if i == m.cursor.row {
 			// Show cursor on current line
 			if m.cursor.col < len(line) {
@@ -325,14 +340,12 @@ func (m model) View() string {
 			s.WriteString(line)
 		}
 		s.WriteString("\n")
+		visibleLines++
 	}
 
-	// Add empty lines to fill viewport
-	linesShown := len(m.content)
-	if m.viewport.height > 0 {
-		for i := linesShown; i < m.viewport.height-2; i++ { // -2 for status bar
-			s.WriteString("~\n")
-		}
+	// Add empty lines to fill remaining viewport space
+	for i := visibleLines; i < maxContentHeight; i++ {
+		s.WriteString("~\n")
 	}
 
 	// Calculate word count
@@ -356,12 +369,19 @@ func (m model) View() string {
 	// Calculate available width for progress bar
 	// Format: "XXX/500    [████████████████████]    Xm"
 	leftText := fmt.Sprintf("%d/%d", wordCount, targetWords)
-	rightText := fmt.Sprintf("%s", timeStr)
-	padding := "    " // 4 spaces padding
-	availableWidth := m.viewport.width - len(leftText) - len(rightText) - len(padding)*2 - 2 // -2 for brackets
+	rightText := timeStr
+	padding := "  " // 2 spaces padding (reduced for small windows)
 	
-	if availableWidth < 10 {
-		availableWidth = 10 // minimum bar width
+	// Calculate available width more conservatively
+	usedWidth := len(leftText) + len(rightText) + len(padding)*2 + 2 // +2 for brackets
+	availableWidth := m.viewport.width - usedWidth
+	
+	// Handle very small windows gracefully
+	if availableWidth < 5 {
+		availableWidth = 5 // very minimum bar width
+		padding = " " // reduce padding further
+	} else if availableWidth < 10 {
+		availableWidth = 10 // minimum comfortable bar width
 	}
 	
 	filledWidth := int(progress * float64(availableWidth))
@@ -387,6 +407,18 @@ func (m model) View() string {
 	
 	// Combine into status bar
 	statusBar := leftStyle.Render(leftText) + padding + progressBar.String() + padding + rightStyle.Render(rightText)
+	
+	// Calculate visual length (without ANSI codes) for width checking
+	visualLength := len(leftText) + len(padding)*2 + availableWidth + 2 + len(rightText) // +2 for brackets
+	
+	// Ensure status bar doesn't exceed terminal width based on visual length
+	if visualLength > m.viewport.width {
+		// Fallback to simple status for very small windows
+		statusBar = fmt.Sprintf("%d words %s", wordCount, timeStr)
+		if len(statusBar) > m.viewport.width {
+			statusBar = fmt.Sprintf("%dw", wordCount) // Ultra minimal
+		}
+	}
 	
 	s.WriteString("\n")
 	s.WriteString(statusBar)
