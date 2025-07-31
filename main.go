@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -12,6 +14,8 @@ type model struct {
 	content    []string
 	cursor     position
 	viewport   viewport
+	filename   string
+	modified   bool
 }
 
 type position struct {
@@ -24,10 +28,59 @@ type viewport struct {
 	height int
 }
 
+func loadOrCreateTodayFile() ([]string, string, error) {
+	// Get today's date in YYYY-MM-DD format
+	today := time.Now().Format("2006-01-02")
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, "", err
+	}
+	
+	riverDir := filepath.Join(homeDir, "river", "notes")
+	filename := filepath.Join(riverDir, today+".md")
+	
+	// Ensure .river directory exists
+	if err := os.MkdirAll(riverDir, 0755); err != nil {
+		return nil, "", err
+	}
+	
+	// Read file if it exists, otherwise create empty content
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// File doesn't exist, return empty content
+			return []string{""}, filename, nil
+		}
+		return nil, "", err
+	}
+	
+	// Split content into lines
+	lines := strings.Split(string(content), "\n")
+	if len(lines) == 0 {
+		lines = []string{""}
+	}
+	
+	return lines, filename, nil
+}
+
+func saveFile(filename string, content []string) error {
+	data := strings.Join(content, "\n")
+	return os.WriteFile(filename, []byte(data), 0644)
+}
+
 func initialModel() model {
+	content, filename, err := loadOrCreateTodayFile()
+	if err != nil {
+		// If there's an error, start with empty content
+		content = []string{fmt.Sprintf("Error loading file: %v", err)}
+		filename = "error.txt"
+	}
+	
 	return model{
-		content: []string{""},
-		cursor:  position{0, 0},
+		content:  content,
+		cursor:   position{0, 0},
+		filename: filename,
+		modified: false,
 	}
 }
 
@@ -44,7 +97,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyCtrlC:
+			if m.modified {
+				// Save before quitting
+				if err := saveFile(m.filename, m.content); err != nil {
+					// Could add error handling here
+				}
+			}
 			return m, tea.Quit
+
+		case tea.KeyCtrlS:
+			// Save file
+			if err := saveFile(m.filename, m.content); err == nil {
+				m.modified = false
+			}
 
 		case tea.KeyUp:
 			if m.cursor.row > 0 {
@@ -83,6 +148,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case tea.KeyEnter:
+			m.modified = true
 			// Split the current line at cursor position
 			currentLine := m.content[m.cursor.row]
 			beforeCursor := currentLine[:m.cursor.col]
@@ -101,6 +167,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cursor.col = 0
 
 		case tea.KeyBackspace:
+			m.modified = true
 			if m.cursor.col > 0 {
 				// Delete character before cursor
 				line := m.content[m.cursor.row]
@@ -122,12 +189,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case tea.KeySpace:
+			m.modified = true
 			// Insert space at cursor position
 			line := m.content[m.cursor.row]
 			m.content[m.cursor.row] = line[:m.cursor.col] + " " + line[m.cursor.col:]
 			m.cursor.col++
 
 		case tea.KeyRunes:
+			m.modified = true
 			// Insert characters at cursor position
 			line := m.content[m.cursor.row]
 			m.content[m.cursor.row] = line[:m.cursor.col] + string(msg.Runes) + line[m.cursor.col:]
@@ -168,7 +237,12 @@ func (m model) View() string {
 	}
 
 	// Status bar
-	s.WriteString(fmt.Sprintf("\n[Line %d, Col %d] Press Ctrl+C to quit", m.cursor.row+1, m.cursor.col+1))
+	modifiedIndicator := ""
+	if m.modified {
+		modifiedIndicator = " [modified]"
+	}
+	s.WriteString(fmt.Sprintf("\n%s%s [Line %d, Col %d] Ctrl+S to save, Ctrl+C to quit", 
+		filepath.Base(m.filename), modifiedIndicator, m.cursor.row+1, m.cursor.col+1))
 
 	return s.String()
 }
