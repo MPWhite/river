@@ -493,8 +493,22 @@ func main() {
 			}
 			return
 		case "think":
-			// Run AI analysis
+			// Run AI analysis with categorized TODOs
 			if err := generateTodos(); err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "analyze":
+			// Run AI analysis for insights
+			if err := generateInsights(); err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "todo":
+			// Run AI analysis focused on TODOs
+			if err := generateSimpleTodos(); err != nil {
 				fmt.Printf("Error: %v\n", err)
 				os.Exit(1)
 			}
