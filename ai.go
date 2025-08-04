@@ -79,12 +79,12 @@ Create the following sections:
 - Follow-ups with colleagues or clients
 - Work-related goals and commitments
 
-**HOME TODOs:**
+**PERSONAL TODOs:**
 - Personal tasks, household items, family commitments
-- Personal projects and hobbies
 - Health, fitness, and self-care items
+- Financial and administrative tasks
 
-**DEEPER THOUGHT TODOs:**
+**PROJECTS & IDEAS:**
 - Ideas that need further exploration or research
 - Long-term goals and strategic thinking
 - Creative projects or learning opportunities
