@@ -95,7 +95,25 @@ func callOpenAI(prompt string) (string, error) {
 	}
 	
 	// Construct the full prompt
-	systemPrompt := `You are an AI assistant helping with personal productivity. Based on the provided notes from the last few days, generate a list of actionable TODOs. 
+	systemPrompt := `You are an AI assistant helping with personal productivity. Based on the provided notes from the last few days, generate organized lists of TODOs in different categories.
+
+Create the following sections:
+
+**WORK TODOs:**
+- Tasks related to professional projects, meetings, deadlines
+- Follow-ups with colleagues or clients
+- Work-related goals and commitments
+
+**HOME TODOs:**
+- Personal tasks, household items, family commitments
+- Personal projects and hobbies
+- Health, fitness, and self-care items
+
+**DEEPER THOUGHT TODOs:**
+- Ideas that need further exploration or research
+- Long-term goals and strategic thinking
+- Creative projects or learning opportunities
+- Reflection and planning items
 
 Focus on:
 - Incomplete tasks or projects mentioned
@@ -104,12 +122,15 @@ Focus on:
 - Goals or commitments that need action
 - Any deadlines or time-sensitive items
 
-Format your response as a simple numbered list of actionable items. Be specific and concise. If no clear TODOs can be derived, suggest a few general productivity actions based on the content themes.`
+IMPORTANT: For each TODO item, include a brief rationale in parentheses that cites or references the specific note content that led to this suggestion. For example:
+"1. Follow up with John about the project proposal (mentioned meeting him on Tuesday but no follow-up scheduled)"
 
-	userPrompt := fmt.Sprintf("Here are my notes from the last few days:\n\n%s\n\nPlease generate a list of TODOs based on this content.", prompt)
+Format your response with clear section headers and numbered lists under each. Be specific and concise. If a category has no clear TODOs, you may omit that section or suggest general productivity actions based on the content themes.`
+
+	userPrompt := fmt.Sprintf("Here are my notes from the last few days:\n\n%s\n\nPlease generate organized lists of TODOs based on this content, categorized by Work, Home, and Deeper Thought items.", prompt)
 	
 	request := OpenAIRequest{
-		Model: "gpt-3.5-turbo",
+		Model: "gpt-4o",
 		Messages: []Message{
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userPrompt},
