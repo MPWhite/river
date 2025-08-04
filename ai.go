@@ -1,43 +1,15 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
+	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/anthropics/anthropic-sdk-go"
 )
-
-// OpenAI API structures
-type OpenAIRequest struct {
-	Model    string    `json:"model"`
-	Messages []Message `json:"messages"`
-	MaxTokens int      `json:"max_tokens"`
-	Temperature float64 `json:"temperature"`
-}
-
-type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type OpenAIResponse struct {
-	Choices []Choice `json:"choices"`
-	Error   *APIError `json:"error,omitempty"`
-}
-
-type Choice struct {
-	Message Message `json:"message"`
-}
-
-type APIError struct {
-	Message string `json:"message"`
-	Type    string `json:"type"`
-}
 
 // getRecentNotes reads notes from the last few days
 func getRecentNotes(days int) (string, error) {
@@ -87,14 +59,17 @@ func getRecentNotes(days int) (string, error) {
 	return allContent.String(), nil
 }
 
-// callOpenAI makes a request to the OpenAI API
-func callOpenAI(prompt string) (string, error) {
-	apiKey := os.Getenv("OPENAI_API_KEY")
+// callAnthropic makes a request to the Anthropic API using Claude
+func callAnthropic(prompt string) (string, error) {
+	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
-		return "", fmt.Errorf("OPENAI_API_KEY environment variable not set")
+		return "", fmt.Errorf("ANTHROPIC_API_KEY environment variable not set")
 	}
 	
-	// Construct the full prompt
+	// Create Anthropic client
+	client := anthropic.NewClient()
+	
+	// Construct the system prompt
 	systemPrompt := `You are an AI assistant helping with personal productivity. Based on the provided notes from the last few days, generate organized lists of TODOs in different categories.
 
 Create the following sections:
@@ -129,55 +104,44 @@ Format your response with clear section headers and numbered lists under each. B
 
 	userPrompt := fmt.Sprintf("Here are my notes from the last few days:\n\n%s\n\nPlease generate organized lists of TODOs based on this content, categorized by Work, Home, and Deeper Thought items.", prompt)
 	
-	request := OpenAIRequest{
-		Model: "gpt-4o",
-		Messages: []Message{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: userPrompt},
+	// Create the message request
+	ctx := context.Background()
+	response, err := client.Messages.New(ctx, anthropic.MessageNewParams{
+		Model:     "claude-sonnet-4-20250514", // Using Haiku for faster/cheaper responses
+		MaxTokens: 1000,
+		System:    []anthropic.TextBlockParam{{Text: systemPrompt, Type: "text"}},
+		Messages: []anthropic.MessageParam{
+			{
+				Role: anthropic.MessageParamRoleUser,
+				Content: []anthropic.ContentBlockParamUnion{
+					{
+						OfText: &anthropic.TextBlockParam{
+							Text: userPrompt,
+							Type: "text",
+						},
+					},
+				},
+			},
 		},
-		MaxTokens: 500,
-		Temperature: 0.7,
-	}
+	})
 	
-	jsonData, err := json.Marshal(request)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("Anthropic API error: %v", err)
 	}
 	
-	req, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return "", err
+	// Extract the response text
+	if len(response.Content) == 0 {
+		return "", fmt.Errorf("no response content from Anthropic")
 	}
 	
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
+	// Get the first text block from the response
+	for _, content := range response.Content {
+		if content.Type == "text" && content.Text != "" {
+			return content.Text, nil
+		}
 	}
 	
-	var openAIResp OpenAIResponse
-	if err := json.Unmarshal(body, &openAIResp); err != nil {
-		return "", err
-	}
-	
-	if openAIResp.Error != nil {
-		return "", fmt.Errorf("OpenAI API error: %s", openAIResp.Error.Message)
-	}
-	
-	if len(openAIResp.Choices) == 0 {
-		return "", fmt.Errorf("no response from OpenAI")
-	}
-	
-	return openAIResp.Choices[0].Message.Content, nil
+	return "", fmt.Errorf("unexpected response format from Anthropic")
 }
 
 // generateTodos analyzes recent notes and generates TODOs using AI
@@ -198,7 +162,7 @@ func generateTodos() error {
 	fmt.Println("📖 Analyzing notes from the last 3 days...")
 	
 	// Call AI to generate TODOs
-	todos, err := callOpenAI(notes)
+	todos, err := callAnthropic(notes)
 	if err != nil {
 		return fmt.Errorf("error calling AI: %v", err)
 	}
@@ -206,7 +170,7 @@ func generateTodos() error {
 	// Display the results
 	fmt.Println("\n✨ Here are some TODOs based on your recent notes:")
 	fmt.Println(todos)
-	fmt.Println("\n💡 Tip: Add your API key with: export OPENAI_API_KEY=your_key_here")
+	fmt.Println("\n💡 Tip: Add your API key with: export ANTHROPIC_API_KEY=your_key_here")
 	
 	return nil
 }
