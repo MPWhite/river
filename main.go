@@ -484,7 +484,7 @@ func main() {
 	// Check for command line arguments
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "--stats":
+		case "stats":
 			// Run stats view
 			p := tea.NewProgram(initStatsModel(), tea.WithAltScreen())
 			if _, err := p.Run(); err != nil {
