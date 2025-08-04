@@ -482,14 +482,24 @@ func (m model) View() string {
 
 func main() {
 	// Check for command line arguments
-	if len(os.Args) > 1 && os.Args[1] == "--stats" {
-		// Run stats view
-		p := tea.NewProgram(initStatsModel(), tea.WithAltScreen())
-		if _, err := p.Run(); err != nil {
-			fmt.Printf("Error: %v", err)
-			os.Exit(1)
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "--stats":
+			// Run stats view
+			p := tea.NewProgram(initStatsModel(), tea.WithAltScreen())
+			if _, err := p.Run(); err != nil {
+				fmt.Printf("Error: %v", err)
+				os.Exit(1)
+			}
+			return
+		case "think":
+			// Run AI analysis
+			if err := generateTodos(); err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		}
-		return
 	}
 
 	// Default behavior - run the note editor
