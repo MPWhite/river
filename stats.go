@@ -274,30 +274,47 @@ func (m statsModel) renderDaily() string {
 	content = append(content, titleStyle.Render("📅 Daily Statistics"))
 	content = append(content, "")
 
-	// Show last 14 days
-	startIdx := len(m.stats.dailyStats) - 14
-	if startIdx < 0 {
-		startIdx = 0
+	// Show last 14 days including missing days
+	endDate := time.Now()
+	startDate := endDate.AddDate(0, 0, -13) // 14 days total including today
+	
+	// Create a map of existing stats for quick lookup
+	statsMap := make(map[string]dailyStat)
+	for _, stat := range m.stats.dailyStats {
+		statsMap[stat.date.Format("2006-01-02")] = stat
 	}
 
-	for i := startIdx; i < len(m.stats.dailyStats); i++ {
-		stat := m.stats.dailyStats[i]
-
-		dateStr := stat.date.Format("Mon, Jan 2")
-		if stat.date.Format("2006-01-02") == time.Now().Format("2006-01-02") {
+	// Iterate through each day in the range
+	for d := startDate; !d.After(endDate); d = d.AddDate(0, 0, 1) {
+		dateKey := d.Format("2006-01-02")
+		dateStr := d.Format("Mon, Jan 2")
+		
+		if dateKey == time.Now().Format("2006-01-02") {
 			dateStr += " (Today)"
 		}
 
-		bar := m.renderMiniBar(stat.words, 1000, 30)
-		timeStr := formatDuration(stat.typingTime)
-
-		line := fmt.Sprintf("%-20s %s %5d words %8s", dateStr, bar, stat.words, timeStr)
-
-		if stat.date.Format("2006-01-02") == time.Now().Format("2006-01-02") {
-			line = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF1493")).Render(line)
+		// Check if we have data for this day
+		if stat, exists := statsMap[dateKey]; exists {
+			// Day with data
+			bar := m.renderMiniBar(stat.words, 1000, 30)
+			timeStr := formatDuration(stat.typingTime)
+			line := fmt.Sprintf("%-20s %s %5d words %8s", dateStr, bar, stat.words, timeStr)
+			
+			if dateKey == time.Now().Format("2006-01-02") {
+				line = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF1493")).Render(line)
+			}
+			
+			content = append(content, line)
+		} else {
+			// Day without data - show as empty/missed
+			emptyBar := m.renderEmptyBar(30)
+			line := fmt.Sprintf("%-20s %s %5s %8s", dateStr, emptyBar, "-", "-")
+			
+			// Style missed days differently (dimmed)
+			line = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render(line)
+			
+			content = append(content, line)
 		}
-
-		content = append(content, line)
 	}
 
 	return lipgloss.NewStyle().
@@ -462,6 +479,17 @@ func (m statsModel) renderMiniBar(current, max, width int) string {
 	return bar.String()
 }
 
+func (m statsModel) renderEmptyBar(width int) string {
+	var bar strings.Builder
+	
+	for i := 0; i < width; i++ {
+		// Use a different character to indicate no data
+		bar.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#333")).Render("─"))
+	}
+	
+	return bar.String()
+}
+
 func formatDuration(d time.Duration) string {
 	hours := int(d.Hours())
 	minutes := int(d.Minutes()) % 60
@@ -570,16 +598,29 @@ func calculateCurrentStreak(dailyStats []dailyStat) int {
 		return 0
 	}
 
+	// Create a map for quick date lookup
+	dateMap := make(map[string]bool)
+	for _, stat := range dailyStats {
+		dateMap[stat.date.Format("2006-01-02")] = true
+	}
+
 	streak := 0
 	today := time.Now()
+	
+	// Check if today has an entry
+	todayKey := today.Format("2006-01-02")
+	if !dateMap[todayKey] {
+		// If no entry today, streak is already broken
+		return 0
+	}
 
-	// Start from the most recent day and work backwards
-	for i := len(dailyStats) - 1; i >= 0; i-- {
-		expectedDate := today.AddDate(0, 0, -(len(dailyStats) - 1 - i))
-
-		if dailyStats[i].date.Format("2006-01-02") == expectedDate.Format("2006-01-02") {
+	// Count backwards from today
+	for d := today; ; d = d.AddDate(0, 0, -1) {
+		dateKey := d.Format("2006-01-02")
+		if dateMap[dateKey] {
 			streak++
 		} else {
+			// Gap found, streak ends
 			break
 		}
 	}
