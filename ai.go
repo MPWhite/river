@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -294,6 +295,114 @@ Keep the list focused and practical - aim for quality over quantity.`
 	return "", fmt.Errorf("unexpected response format from Anthropic")
 }
 
+// callAnthropicForPrompts generates personalized journal prompts based on recent notes
+func callAnthropicForPrompts(notes string) ([]string, error) {
+	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("ANTHROPIC_API_KEY environment variable not set")
+	}
+	
+	// Create Anthropic client
+	client := anthropic.NewClient()
+	
+	// Construct the system prompt for generating personalized prompts
+	systemPrompt := `You are an AI assistant that creates personalized journal prompts based on someone's recent journal entries. Your goal is to help them reflect more deeply, explore unresolved thoughts, and continue their personal growth journey.
+
+Based on their recent notes, generate 7 thoughtful journal prompts that:
+
+1. Build on themes and topics they've been exploring
+2. Help them dig deeper into unresolved questions or concerns
+3. Encourage reflection on patterns you notice
+4. Challenge them to think about things from new perspectives
+5. Support their goals and aspirations
+6. Address any emotional or mental patterns you observe
+7. Connect different ideas they've mentioned
+
+Guidelines:
+- Make prompts specific to their content, not generic
+- Reference specific topics, people, or situations they've mentioned when relevant
+- Vary the types of prompts (reflection, planning, gratitude, challenge, insight, etc.)
+- Keep prompts open-ended but focused
+- Make them thought-provoking but not overwhelming
+- Consider their current emotional state and energy level
+
+Format your response as a JSON array of strings, with exactly 7 prompts. Each prompt should be a complete question or writing prompt. Example format:
+["First prompt here?", "Second prompt here?", "Third prompt here?", "Fourth prompt here?", "Fifth prompt here?", "Sixth prompt here?", "Seventh prompt here?"]`
+
+	userPrompt := fmt.Sprintf("Here are my journal entries from the last week:\n\n%s\n\nPlease generate 7 personalized journal prompts based on these entries.", notes)
+	
+	// Create the message request
+	ctx := context.Background()
+	response, err := client.Messages.New(ctx, anthropic.MessageNewParams{
+		Model:     "claude-3-haiku-20240307",
+		MaxTokens: 800,
+		System:    []anthropic.TextBlockParam{{Text: systemPrompt, Type: "text"}},
+		Messages: []anthropic.MessageParam{
+			{
+				Role: anthropic.MessageParamRoleUser,
+				Content: []anthropic.ContentBlockParamUnion{
+					{
+						OfText: &anthropic.TextBlockParam{
+							Text: userPrompt,
+							Type: "text",
+						},
+					},
+				},
+			},
+		},
+	})
+	
+	if err != nil {
+		return nil, fmt.Errorf("Anthropic API error: %v", err)
+	}
+	
+	// Extract the response text
+	if len(response.Content) == 0 {
+		return nil, fmt.Errorf("no response content from Anthropic")
+	}
+	
+	// Get the first text block from the response
+	for _, content := range response.Content {
+		if content.Type == "text" && content.Text != "" {
+			// Parse the JSON array of prompts
+			var prompts []string
+			responseText := strings.TrimSpace(content.Text)
+			
+			// Find the JSON array in the response
+			startIdx := strings.Index(responseText, "[")
+			endIdx := strings.LastIndex(responseText, "]")
+			
+			if startIdx != -1 && endIdx != -1 && endIdx > startIdx {
+				jsonStr := responseText[startIdx:endIdx+1]
+				
+				// Try to parse as JSON array
+				if err := json.Unmarshal([]byte(jsonStr), &prompts); err != nil {
+					// Fallback to simple parsing if JSON fails
+					jsonStr = strings.Trim(jsonStr, "[]")
+					// Split by ", " but not within quotes
+					parts := strings.Split(jsonStr, "\", \"")
+					for _, part := range parts {
+						// Clean up quotes
+						part = strings.Trim(part, "\"")
+						part = strings.ReplaceAll(part, "\\\"", "\"")
+						if part != "" {
+							prompts = append(prompts, part)
+						}
+					}
+				}
+			}
+			
+			if len(prompts) == 0 {
+				return nil, fmt.Errorf("could not parse prompts from response")
+			}
+			
+			return prompts, nil
+		}
+	}
+	
+	return nil, fmt.Errorf("unexpected response format from Anthropic")
+}
+
 // generateTodos analyzes recent notes and generates TODOs using AI
 func generateTodos() error {
 	fmt.Println("🤔 Thinking about your recent notes...")
@@ -383,6 +492,63 @@ func generateSimpleTodos() error {
 	fmt.Println("\n📝 Here are actionable TODOs from your notes:")
 	fmt.Println(todos)
 	fmt.Println("\n💡 Tip: Add your API key with: export ANTHROPIC_API_KEY=your_key_here")
+	
+	return nil
+}
+
+// generatePrompts analyzes recent notes and generates personalized journal prompts
+func generatePrompts() error {
+	fmt.Println("✨ Creating personalized prompts based on your recent writing...")
+	
+	// Get recent notes (last 7 days for more context)
+	notes, err := getRecentNotes(7)
+	if err != nil {
+		return fmt.Errorf("error reading recent notes: %v", err)
+	}
+	
+	if strings.TrimSpace(notes) == "" {
+		fmt.Println("📝 No recent notes found. Try writing some thoughts first!")
+		return nil
+	}
+	
+	fmt.Println("🔮 Analyzing your journal entries from the last week...")
+	
+	// Call AI to generate prompts
+	prompts, err := callAnthropicForPrompts(notes)
+	if err != nil {
+		return fmt.Errorf("error calling AI: %v", err)
+	}
+	
+	// Display the prompts
+	fmt.Println("\n🌟 Here are personalized journal prompts based on your recent reflections:\n")
+	for i, prompt := range prompts {
+		fmt.Printf("%d. %s\n\n", i+1, prompt)
+	}
+	
+	// Save prompts to a file for future use
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	
+	riverDir := filepath.Join(homeDir, "river", "notes")
+	promptsFile := filepath.Join(riverDir, ".prompts")
+	
+	// Create a simple format for storing prompts with timestamps
+	var promptData strings.Builder
+	promptData.WriteString(fmt.Sprintf("# Generated on %s\n\n", time.Now().Format("2006-01-02 15:04:05")))
+	for i, prompt := range prompts {
+		promptData.WriteString(fmt.Sprintf("%d. %s\n", i+1, prompt))
+	}
+	
+	if err := os.WriteFile(promptsFile, []byte(promptData.String()), 0644); err != nil {
+		fmt.Printf("\n⚠️  Could not save prompts to file: %v\n", err)
+	} else {
+		fmt.Printf("\n💾 Prompts saved to %s\n", promptsFile)
+		fmt.Println("   These prompts will be used for your daily notes over the next week.")
+	}
+	
+	fmt.Println("\n💡 Tip: Run 'river prompts' weekly to get fresh, personalized prompts!")
 	
 	return nil
 }

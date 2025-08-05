@@ -83,10 +83,46 @@ func loadOrCreateTodayFile() ([]string, string, error) {
 	return lines, filename, nil
 }
 
+// loadPersonalizedPrompts loads prompts from the .prompts file if available
+func loadPersonalizedPrompts() []string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	
+	riverDir := filepath.Join(homeDir, "river", "notes")
+	promptsFile := filepath.Join(riverDir, ".prompts")
+	
+	content, err := os.ReadFile(promptsFile)
+	if err != nil {
+		return nil
+	}
+	
+	// Parse prompts from file
+	lines := strings.Split(string(content), "\n")
+	var prompts []string
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// Look for numbered prompts (e.g., "1. What about...")
+		if len(line) > 3 && line[1] == '.' && line[0] >= '1' && line[0] <= '9' {
+			prompt := strings.TrimSpace(line[3:])
+			if prompt != "" {
+				prompts = append(prompts, prompt)
+			}
+		}
+	}
+	
+	return prompts
+}
+
 // createDailyNoteTemplate creates a template for new daily notes with date and prompt
 func createDailyNoteTemplate() string {
-	// List of prompts for daily reflection
-	prompts := []string{
+	// First try to load personalized prompts
+	personalizedPrompts := loadPersonalizedPrompts()
+	
+	// Default prompts for daily reflection
+	defaultPrompts := []string{
 		"What are three things you're grateful for today?",
 		"What's one small win you can achieve today?",
 		"How do you want to feel at the end of today?",
@@ -102,6 +138,12 @@ func createDailyNoteTemplate() string {
 		"What would your best self do today?",
 		"What's one way you can simplify your day?",
 		"How can you bring more joy into your routine today?",
+	}
+	
+	// Use personalized prompts if available, otherwise use defaults
+	prompts := defaultPrompts
+	if len(personalizedPrompts) > 0 {
+		prompts = personalizedPrompts
 	}
 
 	// Get today's date
@@ -509,6 +551,13 @@ func main() {
 		case "todo":
 			// Run AI analysis focused on TODOs
 			if err := generateSimpleTodos(); err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "prompts":
+			// Generate personalized journal prompts
+			if err := generatePrompts(); err != nil {
 				fmt.Printf("Error: %v\n", err)
 				os.Exit(1)
 			}
