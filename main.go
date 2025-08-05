@@ -556,61 +556,57 @@ func (m model) View() string {
 	}
 
 	// Calculate available width for progress bar
-	// Format: "XXX/500    [████████████████████]    Xm"
+	// Format: "XXX/500  [████████████████████]  Xm"
 	leftText := fmt.Sprintf("%d/%d", wordCount, targetWords)
 	rightText := timeStr
-	padding := "  " // 2 spaces padding (reduced for small windows)
+	padding := "  " // 2 spaces padding
 
-	// Calculate available width more conservatively
-	usedWidth := len(leftText) + len(rightText) + len(padding)*2 + 2 // +2 for brackets
-	availableWidth := m.viewport.width - usedWidth
+	// Calculate the minimum width needed for text components
+	minTextWidth := len(leftText) + len(rightText) + len(padding)*2 + 2 // +2 for brackets
 
-	// Handle very small windows gracefully
-	if availableWidth < 5 {
-		availableWidth = 5 // very minimum bar width
-		padding = " "      // reduce padding further
-	} else if availableWidth < 10 {
-		availableWidth = 10 // minimum comfortable bar width
-	}
-
-	filledWidth := int(progress * float64(availableWidth))
-
-	// Create subtle progress bar
-	var progressBar strings.Builder
-	progressBar.WriteString("[")
-
-	// Use subtle but visible characters and colors
-	for i := 0; i < availableWidth; i++ {
-		if i < filledWidth {
-			// Slightly brighter for filled portion with a pink tint
-			progressBar.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#AA6688")).Render("━"))
-		} else {
-			progressBar.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#444444")).Render("─"))
-		}
-	}
-	progressBar.WriteString("]")
-
-	// Style the components with slightly more visible colors
-	leftStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#999999"))
-	rightStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#999999"))
-
-	// Combine into status bar
-	statusBar := leftStyle.Render(leftText) + padding + progressBar.String() + padding + rightStyle.Render(rightText)
-
-	// Calculate visual length (without ANSI codes) for width checking
-	visualLength := len(leftText) + len(padding)*2 + availableWidth + 2 + len(rightText) // +2 for brackets
-
-	// Ensure status bar doesn't exceed terminal width based on visual length
-	if visualLength > m.viewport.width {
-		// Fallback to simple status for very small windows
-		statusBar = fmt.Sprintf("%d words %s", wordCount, timeStr)
+	// If window is too small for any progress bar, show simple status
+	if m.viewport.width < minTextWidth+3 { // +3 for minimal progress bar
+		statusBar := fmt.Sprintf("%d words %s", wordCount, timeStr)
 		if len(statusBar) > m.viewport.width {
 			statusBar = fmt.Sprintf("%dw", wordCount) // Ultra minimal
 		}
-	}
+		s.WriteString("\n")
+		s.WriteString(statusBar)
+	} else {
+		// Calculate available width for the progress bar itself
+		availableWidth := m.viewport.width - minTextWidth
 
-	s.WriteString("\n")
-	s.WriteString(statusBar)
+		// Ensure progress bar has reasonable width
+		if availableWidth < 5 {
+			availableWidth = 5
+		}
+
+		filledWidth := int(progress * float64(availableWidth))
+
+		// Create progress bar that fits exactly
+		var progressBar strings.Builder
+		progressBar.WriteString("[")
+
+		// Build the progress bar
+		for i := 0; i < availableWidth; i++ {
+			if i < filledWidth {
+				progressBar.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#AA6688")).Render("━"))
+			} else {
+				progressBar.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#444444")).Render("─"))
+			}
+		}
+		progressBar.WriteString("]")
+
+		// Style the text components
+		leftStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#999999"))
+		rightStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#999999"))
+
+		// Combine into status bar
+		statusBar := leftStyle.Render(leftText) + padding + progressBar.String() + padding + rightStyle.Render(rightText)
+
+		s.WriteString("\n")
+		s.WriteString(statusBar)
+	}
 
 	return s.String()
 }
