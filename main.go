@@ -470,25 +470,59 @@ func (m model) View() string {
 		maxContentHeight = 1
 	}
 
+	// Calculate the visual row of the cursor accounting for wrapped lines
+	visualCursorRow := 0
+	for i := 0; i < m.cursor.row; i++ {
+		line := m.content[i]
+		trimmedLine := strings.TrimSpace(line)
+		isGhostText := strings.HasPrefix(trimmedLine, "<!--") && strings.HasSuffix(trimmedLine, "-->")
+		
+		var wrappedLines []string
+		if isGhostText {
+			content := strings.TrimSuffix(strings.TrimPrefix(trimmedLine, "<!--"), "-->")
+			content = strings.TrimSpace(content)
+			wrappedLines = wordWrap(content, m.viewport.width)
+		} else {
+			wrappedLines = wordWrap(line, m.viewport.width)
+		}
+		visualCursorRow += len(wrappedLines)
+	}
+
 	// Calculate scroll offset to keep cursor visible
 	var scrollOffset int
-	if m.cursor.row >= maxContentHeight {
-		scrollOffset = m.cursor.row - maxContentHeight + 1
+	if visualCursorRow >= maxContentHeight {
+		scrollOffset = visualCursorRow - maxContentHeight + 1
 	}
 
 	// Display visible content lines with word wrapping
 	visibleLines := 0
-	for i := scrollOffset; i < len(m.content) && visibleLines < maxContentHeight; i++ {
+	currentVisualRow := 0
+	
+	for i := 0; i < len(m.content); i++ {
 		line := m.content[i]
 
 		// Check if line is a comment (ghost text) before wrapping
 		trimmedLine := strings.TrimSpace(line)
 		isGhostText := strings.HasPrefix(trimmedLine, "<!--") && strings.HasSuffix(trimmedLine, "-->")
 
-		// Word wrap the line based on viewport width
-		wrappedLines := wordWrap(line, m.viewport.width)
+		var wrappedLines []string
+		if isGhostText {
+			// For ghost text, wrap the content without the comment markers
+			content := strings.TrimSuffix(strings.TrimPrefix(trimmedLine, "<!--"), "-->")
+			content = strings.TrimSpace(content)
+			wrappedLines = wordWrap(content, m.viewport.width)
+		} else {
+			// Word wrap the line normally
+			wrappedLines = wordWrap(line, m.viewport.width)
+		}
 
 		for wrapIndex, wrappedLine := range wrappedLines {
+			// Skip lines before the scroll offset
+			if currentVisualRow < scrollOffset {
+				currentVisualRow++
+				continue
+			}
+			
 			if visibleLines >= maxContentHeight {
 				break
 			}
@@ -513,17 +547,21 @@ func (m model) View() string {
 						s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#FF1493")).Bold(true).Render("│"))
 					}
 				}
-			} else if isGhostText && wrapIndex == 0 {
-				// Apply ghost styling (only process first line of ghost text)
-				content := strings.TrimSuffix(strings.TrimPrefix(trimmedLine, "<!--"), "-->")
-				content = strings.TrimSpace(content)
+			} else if isGhostText {
+				// Apply ghost styling to all wrapped lines of ghost text
 				ghostStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Italic(true)
-				s.WriteString(ghostStyle.Render(content))
+				s.WriteString(ghostStyle.Render(wrappedLine))
 			} else {
 				s.WriteString(wrappedLine)
 			}
 			s.WriteString("\n")
 			visibleLines++
+			currentVisualRow++
+		}
+		
+		// Break outer loop if we've filled the viewport
+		if visibleLines >= maxContentHeight {
+			break
 		}
 	}
 
