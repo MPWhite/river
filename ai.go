@@ -20,15 +20,15 @@ func getRecentNotes(days int) (string, error) {
 	}
 
 	riverDir := filepath.Join(homeDir, "river", "notes")
-	
+
 	var allContent strings.Builder
-	
+
 	// Get the last 'days' worth of notes
 	for i := 0; i < days; i++ {
 		date := time.Now().AddDate(0, 0, -i)
 		dateStr := date.Format("2006-01-02")
 		filename := filepath.Join(riverDir, dateStr+".md")
-		
+
 		content, err := os.ReadFile(filename)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -36,7 +36,7 @@ func getRecentNotes(days int) (string, error) {
 			}
 			return "", err
 		}
-		
+
 		// Filter out HTML comments (ghost text)
 		lines := strings.Split(string(content), "\n")
 		var filteredLines []string
@@ -49,14 +49,14 @@ func getRecentNotes(days int) (string, error) {
 				filteredLines = append(filteredLines, line)
 			}
 		}
-		
+
 		if len(filteredLines) > 0 {
 			allContent.WriteString(fmt.Sprintf("\n=== %s ===\n", date.Format("Monday, January 2, 2006")))
 			allContent.WriteString(strings.Join(filteredLines, "\n"))
 			allContent.WriteString("\n")
 		}
 	}
-	
+
 	return allContent.String(), nil
 }
 
@@ -66,10 +66,10 @@ func callAnthropic(prompt string) (string, error) {
 	if apiKey == "" {
 		return "", fmt.Errorf("ANTHROPIC_API_KEY environment variable not set")
 	}
-	
+
 	// Create Anthropic client
 	client := anthropic.NewClient()
-	
+
 	// Construct the system prompt
 	systemPrompt := `You are an AI assistant helping with personal productivity. Based on the provided notes from the last few days, generate organized lists of TODOs in different categories.
 
@@ -104,7 +104,7 @@ IMPORTANT: For each TODO item, include a brief rationale in parentheses that cit
 Format your response with clear section headers and numbered lists under each. Be specific and concise. If a category has no clear TODOs, you may omit that section or suggest general productivity actions based on the content themes.`
 
 	userPrompt := fmt.Sprintf("Here are my notes from the last few days:\n\n%s\n\nPlease generate organized lists of TODOs based on this content, categorized by Work, Home, and Deeper Thought items.", prompt)
-	
+
 	// Create the message request
 	ctx := context.Background()
 	response, err := client.Messages.New(ctx, anthropic.MessageNewParams{
@@ -125,23 +125,23 @@ Format your response with clear section headers and numbered lists under each. B
 			},
 		},
 	})
-	
+
 	if err != nil {
 		return "", fmt.Errorf("Anthropic API error: %v", err)
 	}
-	
+
 	// Extract the response text
 	if len(response.Content) == 0 {
 		return "", fmt.Errorf("no response content from Anthropic")
 	}
-	
+
 	// Get the first text block from the response
 	for _, content := range response.Content {
 		if content.Type == "text" && content.Text != "" {
 			return content.Text, nil
 		}
 	}
-	
+
 	return "", fmt.Errorf("unexpected response format from Anthropic")
 }
 
@@ -151,10 +151,10 @@ func callAnthropicForInsights(prompt string) (string, error) {
 	if apiKey == "" {
 		return "", fmt.Errorf("ANTHROPIC_API_KEY environment variable not set")
 	}
-	
+
 	// Create Anthropic client
 	client := anthropic.NewClient()
-	
+
 	// Construct the system prompt for insights
 	systemPrompt := `You are an AI assistant specialized in analyzing personal notes to identify patterns, themes, and insights. Based on the provided notes from the last few days, provide a thoughtful analysis.
 
@@ -183,7 +183,7 @@ Be thoughtful and nuanced in your analysis. Focus on helping the person understa
 Format your response with clear section headers and insightful commentary. Be encouraging and constructive while being honest about what you observe.`
 
 	userPrompt := fmt.Sprintf("Here are my notes from the last few days:\n\n%s\n\nPlease analyze these notes for patterns, themes, and insights about my thinking and mental state.", prompt)
-	
+
 	// Create the message request
 	ctx := context.Background()
 	response, err := client.Messages.New(ctx, anthropic.MessageNewParams{
@@ -204,23 +204,23 @@ Format your response with clear section headers and insightful commentary. Be en
 			},
 		},
 	})
-	
+
 	if err != nil {
 		return "", fmt.Errorf("Anthropic API error: %v", err)
 	}
-	
+
 	// Extract the response text
 	if len(response.Content) == 0 {
 		return "", fmt.Errorf("no response content from Anthropic")
 	}
-	
+
 	// Get the first text block from the response
 	for _, content := range response.Content {
 		if content.Type == "text" && content.Text != "" {
 			return content.Text, nil
 		}
 	}
-	
+
 	return "", fmt.Errorf("unexpected response format from Anthropic")
 }
 
@@ -230,10 +230,10 @@ func callAnthropicForSimpleTodos(prompt string) (string, error) {
 	if apiKey == "" {
 		return "", fmt.Errorf("ANTHROPIC_API_KEY environment variable not set")
 	}
-	
+
 	// Create Anthropic client
 	client := anthropic.NewClient()
-	
+
 	// Construct the system prompt for simple TODOs
 	systemPrompt := `You are an AI assistant that extracts actionable TODOs from personal notes. Based on the provided notes, identify clear, specific tasks that need to be completed.
 
@@ -254,7 +254,7 @@ Format as a simple numbered list. Be specific and concrete - avoid vague items. 
 Keep the list focused and practical - aim for quality over quantity.`
 
 	userPrompt := fmt.Sprintf("Here are my notes from the last few days:\n\n%s\n\nPlease extract actionable TODOs from these notes.", prompt)
-	
+
 	// Create the message request
 	ctx := context.Background()
 	response, err := client.Messages.New(ctx, anthropic.MessageNewParams{
@@ -275,23 +275,23 @@ Keep the list focused and practical - aim for quality over quantity.`
 			},
 		},
 	})
-	
+
 	if err != nil {
 		return "", fmt.Errorf("Anthropic API error: %v", err)
 	}
-	
+
 	// Extract the response text
 	if len(response.Content) == 0 {
 		return "", fmt.Errorf("no response content from Anthropic")
 	}
-	
+
 	// Get the first text block from the response
 	for _, content := range response.Content {
 		if content.Type == "text" && content.Text != "" {
 			return content.Text, nil
 		}
 	}
-	
+
 	return "", fmt.Errorf("unexpected response format from Anthropic")
 }
 
@@ -301,10 +301,10 @@ func callAnthropicForPrompts(notes string) ([]string, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("ANTHROPIC_API_KEY environment variable not set")
 	}
-	
+
 	// Create Anthropic client
 	client := anthropic.NewClient()
-	
+
 	// Construct the system prompt for generating personalized prompts
 	systemPrompt := `You are an AI assistant that creates personalized journal prompts based on someone's recent journal entries. Your goal is to help them reflect more deeply, explore unresolved thoughts, and continue their personal growth journey.
 
@@ -330,7 +330,7 @@ Format your response as a JSON array of strings, with exactly 7 prompts. Each pr
 ["First prompt here?", "Second prompt here?", "Third prompt here?", "Fourth prompt here?", "Fifth prompt here?", "Sixth prompt here?", "Seventh prompt here?"]`
 
 	userPrompt := fmt.Sprintf("Here are my journal entries from the last week:\n\n%s\n\nPlease generate 7 personalized journal prompts based on these entries.", notes)
-	
+
 	// Create the message request
 	ctx := context.Background()
 	response, err := client.Messages.New(ctx, anthropic.MessageNewParams{
@@ -351,30 +351,30 @@ Format your response as a JSON array of strings, with exactly 7 prompts. Each pr
 			},
 		},
 	})
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("Anthropic API error: %v", err)
 	}
-	
+
 	// Extract the response text
 	if len(response.Content) == 0 {
 		return nil, fmt.Errorf("no response content from Anthropic")
 	}
-	
+
 	// Get the first text block from the response
 	for _, content := range response.Content {
 		if content.Type == "text" && content.Text != "" {
 			// Parse the JSON array of prompts
 			var prompts []string
 			responseText := strings.TrimSpace(content.Text)
-			
+
 			// Find the JSON array in the response
 			startIdx := strings.Index(responseText, "[")
 			endIdx := strings.LastIndex(responseText, "]")
-			
+
 			if startIdx != -1 && endIdx != -1 && endIdx > startIdx {
-				jsonStr := responseText[startIdx:endIdx+1]
-				
+				jsonStr := responseText[startIdx : endIdx+1]
+
 				// Try to parse as JSON array
 				if err := json.Unmarshal([]byte(jsonStr), &prompts); err != nil {
 					// Fallback to simple parsing if JSON fails
@@ -391,164 +391,164 @@ Format your response as a JSON array of strings, with exactly 7 prompts. Each pr
 					}
 				}
 			}
-			
+
 			if len(prompts) == 0 {
 				return nil, fmt.Errorf("could not parse prompts from response")
 			}
-			
+
 			return prompts, nil
 		}
 	}
-	
+
 	return nil, fmt.Errorf("unexpected response format from Anthropic")
 }
 
 // generateTodos analyzes recent notes and generates TODOs using AI
 func generateTodos() error {
 	fmt.Println("🤔 Thinking about your recent notes...")
-	
+
 	// Get recent notes (last 3 days)
 	notes, err := getRecentNotes(3)
 	if err != nil {
 		return fmt.Errorf("error reading recent notes: %v", err)
 	}
-	
+
 	if strings.TrimSpace(notes) == "" {
 		fmt.Println("📝 No recent notes found. Try writing some thoughts first!")
 		return nil
 	}
-	
+
 	fmt.Println("📖 Analyzing notes from the last 3 days...")
-	
+
 	// Call AI to generate TODOs
 	todos, err := callAnthropic(notes)
 	if err != nil {
 		return fmt.Errorf("error calling AI: %v", err)
 	}
-	
+
 	// Display the results
 	fmt.Println("\n✨ Here are some TODOs based on your recent notes:")
 	fmt.Println(todos)
 	fmt.Println("\n💡 Tip: Add your API key with: export ANTHROPIC_API_KEY=your_key_here")
-	
+
 	return nil
 }
 
 // generateInsights analyzes recent notes for patterns, themes, and insights
 func generateInsights() error {
 	fmt.Println("🔍 Analyzing your recent notes for insights...")
-	
+
 	// Get recent notes (last 3 days)
 	notes, err := getRecentNotes(3)
 	if err != nil {
 		return fmt.Errorf("error reading recent notes: %v", err)
 	}
-	
+
 	if strings.TrimSpace(notes) == "" {
 		fmt.Println("📝 No recent notes found. Try writing some thoughts first!")
 		return nil
 	}
-	
+
 	fmt.Println("🧠 Identifying patterns and themes...")
-	
+
 	// Call AI to generate insights
 	insights, err := callAnthropicForInsights(notes)
 	if err != nil {
 		return fmt.Errorf("error calling AI: %v", err)
 	}
-	
+
 	// Display the results
 	fmt.Println("\n💡 Here are insights from your recent notes:")
 	fmt.Println(insights)
 	fmt.Println("\n💡 Tip: Add your API key with: export ANTHROPIC_API_KEY=your_key_here")
-	
+
 	return nil
 }
 
 // generateSimpleTodos analyzes recent notes and generates a focused list of TODOs
 func generateSimpleTodos() error {
 	fmt.Println("📋 Extracting TODOs from your recent notes...")
-	
+
 	// Get recent notes (last 3 days)
 	notes, err := getRecentNotes(3)
 	if err != nil {
 		return fmt.Errorf("error reading recent notes: %v", err)
 	}
-	
+
 	if strings.TrimSpace(notes) == "" {
 		fmt.Println("📝 No recent notes found. Try writing some thoughts first!")
 		return nil
 	}
-	
+
 	fmt.Println("✅ Identifying actionable items...")
-	
+
 	// Call AI to generate simple TODOs
 	todos, err := callAnthropicForSimpleTodos(notes)
 	if err != nil {
 		return fmt.Errorf("error calling AI: %v", err)
 	}
-	
+
 	// Display the results
 	fmt.Println("\n📝 Here are actionable TODOs from your notes:")
 	fmt.Println(todos)
 	fmt.Println("\n💡 Tip: Add your API key with: export ANTHROPIC_API_KEY=your_key_here")
-	
+
 	return nil
 }
 
 // generatePrompts analyzes recent notes and generates personalized journal prompts
 func generatePrompts() error {
 	fmt.Println("✨ Creating personalized prompts based on your recent writing...")
-	
+
 	// Get recent notes (last 7 days for more context)
 	notes, err := getRecentNotes(7)
 	if err != nil {
 		return fmt.Errorf("error reading recent notes: %v", err)
 	}
-	
+
 	if strings.TrimSpace(notes) == "" {
 		fmt.Println("📝 No recent notes found. Try writing some thoughts first!")
 		return nil
 	}
-	
+
 	fmt.Println("🔮 Analyzing your journal entries from the last week...")
-	
+
 	// Call AI to generate prompts
 	prompts, err := callAnthropicForPrompts(notes)
 	if err != nil {
 		return fmt.Errorf("error calling AI: %v", err)
 	}
-	
+
 	// Display the prompts
 	fmt.Println("\n🌟 Here are personalized journal prompts based on your recent reflections:\n")
 	for i, prompt := range prompts {
 		fmt.Printf("%d. %s\n\n", i+1, prompt)
 	}
-	
+
 	// Save prompts to a file for future use
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return err
 	}
-	
+
 	riverDir := filepath.Join(homeDir, "river", "notes")
 	promptsFile := filepath.Join(riverDir, ".prompts")
-	
+
 	// Create a simple format for storing prompts with timestamps
 	var promptData strings.Builder
 	promptData.WriteString(fmt.Sprintf("# Generated on %s\n\n", time.Now().Format("2006-01-02 15:04:05")))
 	for i, prompt := range prompts {
 		promptData.WriteString(fmt.Sprintf("%d. %s\n", i+1, prompt))
 	}
-	
+
 	if err := os.WriteFile(promptsFile, []byte(promptData.String()), 0644); err != nil {
 		fmt.Printf("\n⚠️  Could not save prompts to file: %v\n", err)
 	} else {
 		fmt.Printf("\n💾 Prompts saved to %s\n", promptsFile)
 		fmt.Println("   These prompts will be used for your daily notes over the next week.")
 	}
-	
+
 	fmt.Println("\n💡 Tip: Run 'river prompts' weekly to get fresh, personalized prompts!")
-	
+
 	return nil
 }

@@ -89,19 +89,19 @@ func loadPersonalizedPrompts() []string {
 	if err != nil {
 		return nil
 	}
-	
+
 	riverDir := filepath.Join(homeDir, "river", "notes")
 	promptsFile := filepath.Join(riverDir, ".prompts")
-	
+
 	content, err := os.ReadFile(promptsFile)
 	if err != nil {
 		return nil
 	}
-	
+
 	// Parse prompts from file
 	lines := strings.Split(string(content), "\n")
 	var prompts []string
-	
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		// Look for numbered prompts (e.g., "1. What about...")
@@ -112,7 +112,7 @@ func loadPersonalizedPrompts() []string {
 			}
 		}
 	}
-	
+
 	return prompts
 }
 
@@ -120,7 +120,7 @@ func loadPersonalizedPrompts() []string {
 func createDailyNoteTemplate() string {
 	// First try to load personalized prompts
 	personalizedPrompts := loadPersonalizedPrompts()
-	
+
 	// Default prompts for daily reflection
 	defaultPrompts := []string{
 		"What are three things you're grateful for today?",
@@ -139,7 +139,7 @@ func createDailyNoteTemplate() string {
 		"What's one way you can simplify your day?",
 		"How can you bring more joy into your routine today?",
 	}
-	
+
 	// Use personalized prompts if available, otherwise use defaults
 	prompts := defaultPrompts
 	if len(personalizedPrompts) > 0 {
@@ -385,6 +385,82 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// wordWrap breaks a line into multiple lines at word boundaries
+func wordWrap(line string, width int) []string {
+	if width <= 0 || len(line) <= width {
+		return []string{line}
+	}
+
+	var wrapped []string
+	var currentLine strings.Builder
+	words := strings.Fields(line)
+
+	// Handle case where line starts with spaces
+	leadingSpaces := len(line) - len(strings.TrimLeft(line, " "))
+	if leadingSpaces > 0 {
+		currentLine.WriteString(strings.Repeat(" ", leadingSpaces))
+	}
+
+	for _, word := range words {
+		wordLen := len(word)
+		currentLen := currentLine.Len()
+
+		// Check if adding this word would exceed the width
+		if currentLen > 0 && currentLen+1+wordLen > width {
+			// If the current line has content, save it and start a new line
+			if currentLine.Len() > 0 {
+				wrapped = append(wrapped, currentLine.String())
+				currentLine.Reset()
+			}
+		}
+
+		// Add space before word if not at the beginning of a line
+		if currentLine.Len() > 0 {
+			currentLine.WriteString(" ")
+		}
+
+		// If a single word is longer than the width, we have to break it
+		if wordLen > width {
+			remainingWord := word
+			for len(remainingWord) > 0 {
+				availableSpace := width - currentLine.Len()
+				if availableSpace <= 0 {
+					wrapped = append(wrapped, currentLine.String())
+					currentLine.Reset()
+					availableSpace = width
+				}
+
+				take := availableSpace
+				if take > len(remainingWord) {
+					take = len(remainingWord)
+				}
+
+				currentLine.WriteString(remainingWord[:take])
+				remainingWord = remainingWord[take:]
+
+				if currentLine.Len() >= width && len(remainingWord) > 0 {
+					wrapped = append(wrapped, currentLine.String())
+					currentLine.Reset()
+				}
+			}
+		} else {
+			currentLine.WriteString(word)
+		}
+	}
+
+	// Add the last line if it has content
+	if currentLine.Len() > 0 {
+		wrapped = append(wrapped, currentLine.String())
+	}
+
+	// Handle empty lines
+	if len(wrapped) == 0 {
+		wrapped = []string{line}
+	}
+
+	return wrapped
+}
+
 func (m model) View() string {
 	var s strings.Builder
 
@@ -400,38 +476,55 @@ func (m model) View() string {
 		scrollOffset = m.cursor.row - maxContentHeight + 1
 	}
 
-	// Display visible content lines
+	// Display visible content lines with word wrapping
 	visibleLines := 0
 	for i := scrollOffset; i < len(m.content) && visibleLines < maxContentHeight; i++ {
 		line := m.content[i]
 
-		if i == m.cursor.row {
-			// Show cursor on current line
-			if m.cursor.col < len(line) {
-				s.WriteString(line[:m.cursor.col])
-				// Blinking cursor effect
-				s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#FF1493")).Bold(true).Render("│"))
-				s.WriteString(line[m.cursor.col:])
-			} else {
-				s.WriteString(line)
-				s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#FF1493")).Bold(true).Render("│"))
+		// Check if line is a comment (ghost text) before wrapping
+		trimmedLine := strings.TrimSpace(line)
+		isGhostText := strings.HasPrefix(trimmedLine, "<!--") && strings.HasSuffix(trimmedLine, "-->")
+
+		// Word wrap the line based on viewport width
+		wrappedLines := wordWrap(line, m.viewport.width)
+
+		for wrapIndex, wrappedLine := range wrappedLines {
+			if visibleLines >= maxContentHeight {
+				break
 			}
-		} else {
-			// Check if line is a comment (ghost text)
-			trimmedLine := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmedLine, "<!--") && strings.HasSuffix(trimmedLine, "-->") {
-				// Extract content between <!-- and -->
+
+			if i == m.cursor.row && wrapIndex == 0 {
+				// Show cursor on current line (only on first wrapped line for now)
+				if m.cursor.col < len(line) {
+					// Find cursor position in wrapped line
+					if m.cursor.col < len(wrappedLine) {
+						s.WriteString(wrappedLine[:m.cursor.col])
+						s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#FF1493")).Bold(true).Render("│"))
+						s.WriteString(wrappedLine[m.cursor.col:])
+					} else {
+						s.WriteString(wrappedLine)
+						if wrapIndex == len(wrappedLines)-1 {
+							s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#FF1493")).Bold(true).Render("│"))
+						}
+					}
+				} else {
+					s.WriteString(wrappedLine)
+					if wrapIndex == len(wrappedLines)-1 {
+						s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#FF1493")).Bold(true).Render("│"))
+					}
+				}
+			} else if isGhostText && wrapIndex == 0 {
+				// Apply ghost styling (only process first line of ghost text)
 				content := strings.TrimSuffix(strings.TrimPrefix(trimmedLine, "<!--"), "-->")
 				content = strings.TrimSpace(content)
-				// Apply ghost styling (dimmed gray)
 				ghostStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Italic(true)
 				s.WriteString(ghostStyle.Render(content))
 			} else {
-				s.WriteString(line)
+				s.WriteString(wrappedLine)
 			}
+			s.WriteString("\n")
+			visibleLines++
 		}
-		s.WriteString("\n")
-		visibleLines++
 	}
 
 	// Add empty lines to fill remaining viewport space
