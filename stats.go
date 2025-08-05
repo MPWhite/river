@@ -21,6 +21,9 @@ type statsModel struct {
 	tabs        []string
 	loading     bool
 	error       error
+	aiInsights  string
+	aiLoading   bool
+	aiError     error
 }
 
 // aggregatedStats holds all the statistics data
@@ -59,7 +62,7 @@ type monthStat struct {
 
 func initStatsModel() statsModel {
 	return statsModel{
-		tabs:        []string{"Overview", "Daily", "Weekly", "Trends"},
+		tabs:        []string{"Overview", "Daily", "Weekly", "Trends", "AI Insights"},
 		selectedTab: 1, // Start with Daily tab selected
 		loading:     true,
 	}
@@ -87,6 +90,14 @@ type statsErrorMsg struct {
 	err error
 }
 
+type aiInsightsMsg struct {
+	insights string
+}
+
+type aiInsightsErrorMsg struct {
+	err error
+}
+
 func (m statsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -101,6 +112,14 @@ func (m statsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.error = msg.err
 		m.loading = false
 
+	case aiInsightsMsg:
+		m.aiInsights = msg.insights
+		m.aiLoading = false
+
+	case aiInsightsErrorMsg:
+		m.aiError = msg.err
+		m.aiLoading = false
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c", "esc":
@@ -109,6 +128,12 @@ func (m statsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selectedTab = (m.selectedTab + 1) % len(m.tabs)
 		case "shift+tab", "left":
 			m.selectedTab = (m.selectedTab - 1 + len(m.tabs)) % len(m.tabs)
+		case "g":
+			// Generate AI insights if on AI Insights tab and not already loading
+			if m.selectedTab == 4 && !m.aiLoading && m.aiInsights == "" {
+				m.aiLoading = true
+				return m, generateAIInsightsCmd(m.stats)
+			}
 		}
 	}
 
@@ -147,6 +172,8 @@ func (m statsModel) View() string {
 		content = m.renderWeekly()
 	case 3:
 		content = m.renderTrends()
+	case 4:
+		content = m.renderAIInsights()
 	}
 
 	// Footer with help
@@ -697,4 +724,91 @@ func calculateWeeklyStats(dailyStats []dailyStat) []weeklyStat {
 	})
 
 	return weeklyStats
+}
+
+func (m statsModel) renderAIInsights() string {
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#FF1493")).
+		MarginBottom(1)
+
+	var content []string
+	content = append(content, titleStyle.Render("🤖 AI-Powered Writing Insights"))
+	content = append(content, "")
+
+	if m.aiLoading {
+		loadingStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF1493")).
+			Padding(2, 0)
+
+		return loadingStyle.Render("🔮 Analyzing your writing patterns...\n\nThis may take a few moments as AI reviews your recent notes.")
+	}
+
+	if m.aiError != nil {
+		errorStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF6B6B")).
+			Padding(2, 0)
+
+		errorMsg := fmt.Sprintf("❌ Error generating insights: %v", m.aiError)
+		if strings.Contains(m.aiError.Error(), "ANTHROPIC_API_KEY") {
+			errorMsg += "\n\n💡 Tip: Set your API key with:\n   export ANTHROPIC_API_KEY=your_key_here"
+		}
+
+		return errorStyle.Render(errorMsg)
+	}
+
+	if m.aiInsights == "" {
+		// Show button prompt to generate insights
+		buttonStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF1493")).
+			Bold(true).
+			Padding(1, 0)
+
+		helpStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#888")).
+			Padding(1, 0)
+
+		content = append(content, buttonStyle.Render("Press 'g' to generate AI insights from your recent writing"))
+		content = append(content, "")
+		content = append(content, helpStyle.Render("AI will analyze:"))
+		content = append(content, helpStyle.Render("• Your writing patterns and themes"))
+		content = append(content, helpStyle.Render("• Productivity trends and habits"))
+		content = append(content, helpStyle.Render("• Emotional patterns in your entries"))
+		content = append(content, helpStyle.Render("• Personalized recommendations"))
+		content = append(content, "")
+		content = append(content, helpStyle.Render("Note: This feature requires an Anthropic API key"))
+	} else {
+		// Display the AI insights
+		content = append(content, m.aiInsights)
+	}
+
+	return lipgloss.NewStyle().
+		Padding(2).
+		Render(strings.Join(content, "\n"))
+}
+
+func generateAIInsightsCmd(stats aggregatedStats) tea.Cmd {
+	return func() tea.Msg {
+		// Get recent notes for context
+		notes, err := getRecentNotes(7) // Get a week of notes for better context
+		if err != nil {
+			return aiInsightsErrorMsg{err: fmt.Errorf("error reading notes: %v", err)}
+		}
+
+		// Calculate average words per day for the stats
+		avgWords := 0
+		if stats.totalDays > 0 {
+			avgWords = stats.totalWords / stats.totalDays
+		}
+		statsWithAvg := stats
+		statsWithAvg.averageWords = avgWords
+
+		// Call AI to generate insights
+		insights, err := callAnthropicForStatsInsights(statsWithAvg, notes)
+		if err != nil {
+			return aiInsightsErrorMsg{err: err}
+		}
+
+		return aiInsightsMsg{insights: insights}
+	}
 }

@@ -403,6 +403,115 @@ Format your response as a JSON array of strings, with exactly 7 prompts. Each pr
 	return nil, fmt.Errorf("unexpected response format from Anthropic")
 }
 
+// callAnthropicForStatsInsights generates insights based on writing statistics
+func callAnthropicForStatsInsights(stats aggregatedStats, recentNotes string) (string, error) {
+	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	if apiKey == "" {
+		return "", fmt.Errorf("ANTHROPIC_API_KEY environment variable not set")
+	}
+
+	// Create Anthropic client
+	client := anthropic.NewClient()
+
+	// Prepare statistics summary for AI
+	statsSummary := fmt.Sprintf(`Writing Statistics Summary:
+- Total Words Written: %d
+- Total Writing Time: %s
+- Days Active: %d
+- Current Streak: %d days
+- Longest Streak: %d days
+- Average Words per Day: %d
+- Most Productive Day: %s (%d words)
+
+Recent Writing Activity (Last 14 Days):
+`, stats.totalWords, formatDuration(stats.totalTypingTime), stats.totalDays,
+		stats.currentStreak, stats.longestStreak,
+		stats.averageWords, stats.mostProductiveDay, stats.mostProductiveWords)
+
+	// Add recent daily stats
+	startIdx := len(stats.dailyStats) - 14
+	if startIdx < 0 {
+		startIdx = 0
+	}
+	for i := startIdx; i < len(stats.dailyStats); i++ {
+		stat := stats.dailyStats[i]
+		statsSummary += fmt.Sprintf("- %s: %d words in %s\n",
+			stat.date.Format("Mon, Jan 2"), stat.words, formatDuration(stat.typingTime))
+	}
+
+	// Construct the system prompt
+	systemPrompt := `You are an AI assistant that analyzes writing habits and journal statistics to provide personalized insights. Based on the provided statistics and recent journal entries, create a comprehensive analysis that helps the writer understand their patterns and improve their practice.
+
+Please provide insights in the following sections:
+
+**📊 PRODUCTIVITY PATTERNS**
+- Analyze writing frequency, volume trends, and time patterns
+- Identify peak productivity days/times if evident
+- Comment on consistency and streak patterns
+- Note any concerning gaps or declines
+
+**🎯 HABITS & CONSISTENCY**
+- Evaluate the strength of their writing habit
+- Comment on their streak performance
+- Suggest ways to improve consistency
+- Recognize achievements and milestones
+
+**💭 CONTENT THEMES**
+- Based on recent entries, identify recurring themes or concerns
+- Note any emotional patterns or mood trends
+- Highlight areas of focus or preoccupation
+- Suggest unexplored topics they might benefit from
+
+**🚀 RECOMMENDATIONS**
+- Provide 3-5 specific, actionable suggestions
+- Include both habit-building and content-focused advice
+- Suggest optimal writing times or goals based on their data
+- Recommend prompts or exercises based on their patterns
+
+Keep the tone encouraging but honest. Use data to support observations. Make recommendations specific and achievable. Format with clear headers and bullet points.`
+
+	userPrompt := fmt.Sprintf("%s\n\nRecent Journal Entries:\n%s\n\nPlease analyze my writing patterns and provide personalized insights.", statsSummary, recentNotes)
+
+	// Create the message request
+	ctx := context.Background()
+	response, err := client.Messages.New(ctx, anthropic.MessageNewParams{
+		Model:     "claude-3-haiku-20240307",
+		MaxTokens: 1500,
+		System:    []anthropic.TextBlockParam{{Text: systemPrompt, Type: "text"}},
+		Messages: []anthropic.MessageParam{
+			{
+				Role: anthropic.MessageParamRoleUser,
+				Content: []anthropic.ContentBlockParamUnion{
+					{
+						OfText: &anthropic.TextBlockParam{
+							Text: userPrompt,
+							Type: "text",
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err != nil {
+		return "", fmt.Errorf("Anthropic API error: %v", err)
+	}
+
+	// Extract the response text
+	if len(response.Content) == 0 {
+		return "", fmt.Errorf("no response content from Anthropic")
+	}
+
+	// Get the first text block from the response
+	for _, content := range response.Content {
+		if content.Type == "text" && content.Text != "" {
+			return content.Text, nil
+		}
+	}
+
+	return "", fmt.Errorf("unexpected response format from Anthropic")
+}
+
 // generateTodos analyzes recent notes and generates TODOs using AI
 func generateTodos() error {
 	fmt.Println("🤔 Thinking about your recent notes...")

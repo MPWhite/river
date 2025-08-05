@@ -476,7 +476,7 @@ func (m model) View() string {
 		line := m.content[i]
 		trimmedLine := strings.TrimSpace(line)
 		isGhostText := strings.HasPrefix(trimmedLine, "<!--") && strings.HasSuffix(trimmedLine, "-->")
-		
+
 		var wrappedLines []string
 		if isGhostText {
 			content := strings.TrimSuffix(strings.TrimPrefix(trimmedLine, "<!--"), "-->")
@@ -497,7 +497,7 @@ func (m model) View() string {
 	// Display visible content lines with word wrapping
 	visibleLines := 0
 	currentVisualRow := 0
-	
+
 	for i := 0; i < len(m.content); i++ {
 		line := m.content[i]
 
@@ -522,7 +522,7 @@ func (m model) View() string {
 				currentVisualRow++
 				continue
 			}
-			
+
 			if visibleLines >= maxContentHeight {
 				break
 			}
@@ -558,7 +558,7 @@ func (m model) View() string {
 			visibleLines++
 			currentVisualRow++
 		}
-		
+
 		// Break outer loop if we've filled the viewport
 		if visibleLines >= maxContentHeight {
 			break
