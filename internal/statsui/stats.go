@@ -8,8 +8,13 @@ import (
 	"strings"
 	"time"
 
+	help "github.com/charmbracelet/bubbles/help"
+	key "github.com/charmbracelet/bubbles/key"
+	paginator "github.com/charmbracelet/bubbles/paginator"
 	progress "github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
+	btable "github.com/charmbracelet/bubbles/table"
+	bviewport "github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/pelletier/go-toml/v2"
@@ -30,7 +35,26 @@ type statsModel struct {
     loader      spinner.Model
     aiLoader    spinner.Model
     goalBar     progress.Model
+    contentVP   bviewport.Model
+    help        help.Model
+    keys        keymap
+    dailyPaginator paginator.Model
+    dailyPageSize  int
+    weeklyTable btable.Model
+    trendsTable btable.Model
+    sidebarWidth int
+    showHelp     bool
+    // animated counters for a premium feel
+    animate      bool
+    totalWordsAnim int
+    totalTimeAnim  time.Duration
+    daysActiveAnim int
+    streakAnim     int
+    longestStreakAnim int
+    lastAnimAt   time.Time
 }
+
+func (m statsModel) mainWidth() int { return m.viewport.width - m.sidebarWidth }
 
 type aggregatedStats struct {
     totalWords          int
@@ -85,17 +109,34 @@ func InitModel() statsModel {
         progress.WithDefaultGradient(),
     )
 
-    return statsModel{
+    m := statsModel{
         tabs:        []string{"Overview", "Daily", "Weekly", "Trends", "AI Insights"},
         selectedTab: 1,
         loading:     true,
         loader:      ld,
         aiLoader:    ai,
         goalBar:     gb,
+        help:        help.New(),
+        keys:        newKeymap(),
+        contentVP:   bviewport.New(0, 0),
+        dailyPaginator: paginator.New(),
+        dailyPageSize:  14,
+        sidebarWidth:  28,
+        showHelp:      false,
+        animate:       true,
     }
+    m.dailyPaginator.Type = paginator.Dots
+    m.dailyPaginator.PerPage = m.dailyPageSize
+    return m
 }
 
-func (m statsModel) Init() tea.Cmd { return tea.Batch(loadStatsCmd(), m.loader.Tick) }
+type animTickMsg time.Time
+
+func animTickCmd() tea.Cmd {
+    return tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg { return animTickMsg(t) })
+}
+
+func (m statsModel) Init() tea.Cmd { return tea.Batch(loadStatsCmd(), m.loader.Tick, animTickCmd()) }
 
 func loadStatsCmd() tea.Cmd {
     return func() tea.Msg {
@@ -118,14 +159,36 @@ func (m statsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
         m.viewport.width = msg.Width
         m.viewport.height = msg.Height
         // Keep a comfortable width for progress bar
-        w := m.viewport.width - 30
+        w := m.mainWidth() - 6
         if w < 20 {
             w = 20
         }
         m.goalBar.Width = w
+        // Resize viewport and page size
+        contentHeight := m.viewport.height - 3
+        if contentHeight < 5 {
+            contentHeight = 5
+        }
+        m.contentVP.Width = m.mainWidth()
+        m.contentVP.Height = contentHeight
+        m.dailyPageSize = contentHeight - 6
+        if m.dailyPageSize < 7 {
+            m.dailyPageSize = 7
+        }
+        m.dailyPaginator.PerPage = m.dailyPageSize
+        m.rebuildTables()
     case statsLoadedMsg:
         m.stats = msg.stats
         m.loading = false
+        // reset counters for animation
+        m.totalWordsAnim = 0
+        m.totalTimeAnim = 0
+        m.daysActiveAnim = 0
+        m.streakAnim = 0
+        m.longestStreakAnim = 0
+        m.lastAnimAt = time.Now()
+        m.rebuildTables()
+        m.updateDailyPaginatorTotal()
     case statsErrorMsg:
         m.error = msg.err
         m.loading = false
@@ -145,6 +208,46 @@ func (m statsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
             cmds = append(cmds, cmd)
         }
         return m, tea.Batch(cmds...)
+    case animTickMsg:
+        if !m.loading && m.animate {
+            // animate towards targets
+            done := true
+            stepInt := func(curr, target int) (int, bool) {
+                if curr >= target { return target, true }
+                diff := target - curr
+                inc := diff / 7
+                if inc < 1 { inc = 1 }
+                v := curr + inc
+                if v > target { v = target }
+                return v, v == target
+            }
+            stepDur := func(curr, target time.Duration) (time.Duration, bool) {
+                if curr >= target { return target, true }
+                diff := target - curr
+                inc := diff / 7
+                if inc < time.Second { inc = time.Second }
+                v := curr + inc
+                if v > target { v = target }
+                return v, v == target
+            }
+            var ok bool
+            m.totalWordsAnim, ok = stepInt(m.totalWordsAnim, m.stats.totalWords)
+            if !ok { done = false }
+            m.totalTimeAnim, ok = stepDur(m.totalTimeAnim, m.stats.totalTypingTime)
+            if !ok { done = false }
+            m.daysActiveAnim, ok = stepInt(m.daysActiveAnim, m.stats.totalDays)
+            if !ok { done = false }
+            m.streakAnim, ok = stepInt(m.streakAnim, m.stats.currentStreak)
+            if !ok { done = false }
+            m.longestStreakAnim, ok = stepInt(m.longestStreakAnim, m.stats.longestStreak)
+            if !ok { done = false }
+            if done {
+                m.animate = false
+                return m, nil
+            }
+            return m, animTickCmd()
+        }
+        return m, nil
     case tea.KeyMsg:
         switch msg.String() {
         case "q", "ctrl+c", "esc":
@@ -153,10 +256,32 @@ func (m statsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
             m.selectedTab = (m.selectedTab + 1) % len(m.tabs)
         case "shift+tab", "left":
             m.selectedTab = (m.selectedTab - 1 + len(m.tabs)) % len(m.tabs)
+        case "?", "h":
+            m.showHelp = !m.showHelp
+        case "j", "down":
+            m.contentVP.LineDown(1)
+        case "k", "up":
+            m.contentVP.LineUp(1)
+        case "pgdown", "f":
+            m.contentVP.HalfViewDown()
+        case "pgup", "b":
+            m.contentVP.HalfViewUp()
+        case "home", "g" + "g":
+            m.contentVP.GotoTop()
+        case "end", "G":
+            m.contentVP.GotoBottom()
         case "g":
             if m.selectedTab == 4 && !m.aiLoading && m.aiInsights == "" {
                 m.aiLoading = true
                 return m, tea.Batch(m.aiLoader.Tick, generateAIInsightsCmd(m.stats))
+            }
+        case "[":
+            if m.selectedTab == 1 {
+                m.dailyPaginator.PrevPage()
+            }
+        case "]":
+            if m.selectedTab == 1 {
+                m.dailyPaginator.NextPage()
             }
         }
     }
@@ -180,22 +305,33 @@ func (m statsModel) View() string {
     if m.error != nil {
         return lipgloss.NewStyle().Width(m.viewport.width).Height(m.viewport.height).Align(lipgloss.Center, lipgloss.Center).Foreground(lipgloss.Color("#FF0000")).Render(fmt.Sprintf("Error loading stats: %v", m.error))
     }
-    header := m.renderTabs()
-    var content string
+    if m.showHelp {
+        return m.renderHelpOverlay()
+    }
+
+    sidebar := m.renderSidebar()
+    var body string
     switch m.selectedTab {
     case 0:
-        content = m.renderOverview()
+        body = m.renderOverview()
     case 1:
-        content = m.renderDaily()
+        body = m.renderDaily()
     case 2:
-        content = m.renderWeekly()
+        body = m.renderWeekly()
     case 3:
-        content = m.renderTrends()
+        body = m.renderTrends()
     case 4:
-        content = m.renderAIInsights()
+        body = m.renderAIInsights()
     }
+    // Wrap body with a banner header
+    banner := m.renderHeaderBanner()
+    // Add symmetrical horizontal padding for the entire main area content
+    mainPad := lipgloss.NewStyle().Padding(0, 2)
+    m.contentVP.SetContent(mainPad.Render(lipgloss.JoinVertical(lipgloss.Top, banner, body)))
     footer := m.renderFooter()
-    return lipgloss.JoinVertical(lipgloss.Top, header, content, footer)
+    // Ensure main area is the remaining width for symmetry
+    mainArea := lipgloss.NewStyle().Width(m.mainWidth()).Render(lipgloss.JoinVertical(lipgloss.Top, m.contentVP.View(), footer))
+    return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, mainArea)
 }
 
 func (m statsModel) renderTabs() string {
@@ -211,6 +347,107 @@ func (m statsModel) renderTabs() string {
     }
     tabBar := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
     return lipgloss.NewStyle().Width(m.viewport.width).Padding(1, 0).BorderBottom(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#444")).Render(tabBar)
+}
+
+func (m statsModel) renderSidebar() string {
+    // Sidebar with tabs and quick stats
+    width := m.sidebarWidth
+    title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF1493")).Render("River")
+    subtitle := lipgloss.NewStyle().Foreground(lipgloss.Color("#AAA")).Render("Dashboard")
+    // tabs list
+    items := []string{
+        m.renderSidebarTab(0, "Overview", "🏠"),
+        m.renderSidebarTab(1, "Daily", "📅"),
+        m.renderSidebarTab(2, "Weekly", "📈"),
+        m.renderSidebarTab(3, "Trends", "📊"),
+        m.renderSidebarTab(4, "AI Insights", "🤖"),
+    }
+    quick := []string{
+        lipgloss.NewStyle().Foreground(lipgloss.Color("#888")).Render("Quick Stats"),
+        fmt.Sprintf("Words: %d", m.totalWordsAnim),
+        fmt.Sprintf("Time: %s", formatDuration(m.totalTimeAnim)),
+        fmt.Sprintf("Streak: %d", m.streakAnim),
+    }
+    box := lipgloss.NewStyle().
+        Width(width).
+        Height(m.viewport.height). // stretch full height for symmetry
+        Border(lipgloss.RoundedBorder()).
+        BorderForeground(lipgloss.Color("#444")).
+        Padding(1, 2)
+    content := lipgloss.JoinVertical(lipgloss.Left,
+        title,
+        subtitle,
+        "",
+        strings.Join(items, "\n"),
+        "",
+        strings.Join(quick, "\n"),
+        "",
+        lipgloss.NewStyle().Foreground(lipgloss.Color("#777")).Render("? for help"),
+    )
+    return box.Render(content)
+}
+
+func (m statsModel) renderSidebarTab(index int, label, icon string) string {
+    style := lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.Color("#AAA"))
+    active := style.Copy().Foreground(lipgloss.Color("#FF1493")).Bold(true)
+    s := fmt.Sprintf("%s %s", icon, label)
+    if index == m.selectedTab {
+        return active.Render(s)
+    }
+    return style.Render(s)
+}
+
+func (m statsModel) renderHeaderBanner() string {
+    // Big banner with animated counters
+    title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFB6C1")).Render("Writing Stats")
+    subtitle := lipgloss.NewStyle().Foreground(lipgloss.Color("#DDD")).Render("Beautiful insights into your writing practice")
+    // make counters equally sized to fill main width for symmetry
+    cards := []string{
+        m.counterCard("Words", fmt.Sprintf("%d", m.totalWordsAnim)),
+        m.counterCard("Time", formatDuration(m.totalTimeAnim)),
+        m.counterCard("Days", fmt.Sprintf("%d", m.daysActiveAnim)),
+        m.counterCard("Streak", fmt.Sprintf("%d", m.streakAnim)),
+        m.counterCard("Longest", fmt.Sprintf("%d", m.longestStreakAnim)),
+    }
+    // compute card width to fill the available width with minimal gaps
+    totalPadding := 2 * len(cards) // right margins inside card
+    available := m.mainWidth() - 4 // banner padding
+    gaps := (len(cards) - 1) * 2
+    per := (available - totalPadding - gaps) / len(cards)
+    if per < 12 { per = 12 }
+    for i := range cards {
+        cards[i] = lipgloss.NewStyle().Width(per).Render(cards[i])
+    }
+    counters := lipgloss.PlaceHorizontal(m.mainWidth()-4, lipgloss.Left, lipgloss.JoinHorizontal(lipgloss.Top, cards...))
+    banner := lipgloss.NewStyle().
+        Border(lipgloss.RoundedBorder()).
+        BorderForeground(lipgloss.Color("#444")).
+        Background(lipgloss.Color("#2A0F25")).
+        Padding(1, 2).Margin(0, 0, 1, 0).
+        Width(m.mainWidth())
+    return banner.Render(lipgloss.JoinVertical(lipgloss.Left, title, subtitle, "", counters))
+}
+
+func (m statsModel) counterCard(label, value string) string {
+    l := lipgloss.NewStyle().Foreground(lipgloss.Color("#AAA")).Render(label)
+    v := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFF")).Render(value)
+    card := lipgloss.NewStyle().
+        Border(lipgloss.NormalBorder()).
+        BorderForeground(lipgloss.Color("#444")).
+        Padding(1, 2).MarginRight(2)
+    return card.Render(lipgloss.JoinVertical(lipgloss.Left, l, v))
+}
+
+func (m statsModel) renderHelpOverlay() string {
+    helpContent := m.help.View(m.keys)
+    box := lipgloss.NewStyle().
+        Width(m.viewport.width - 8).
+        Height(m.viewport.height - 6).
+        Border(lipgloss.RoundedBorder()).
+        BorderForeground(lipgloss.Color("#FF1493")).
+        Padding(1, 2)
+    overlay := box.Render(helpContent + "\n\nPress 'h' or '?' to close")
+    return lipgloss.NewStyle().Width(m.viewport.width).Height(m.viewport.height).Align(lipgloss.Center, lipgloss.Center).Render(overlay)
 }
 
 func (m statsModel) renderOverview() string {
@@ -292,19 +529,32 @@ func (m statsModel) renderDaily() string {
     var content []string
     content = append(content, titleStyle.Render("📅 Daily Statistics"))
     content = append(content, "")
-    endDate := time.Now()
-    startDate := endDate.AddDate(0, 0, -13)
+
+    // Determine window based on paginator page
+    today := time.Now()
+    pages := m.dailyPaginator.TotalPages
+    if pages < 1 {
+        pages = 1
+    }
+    pageFromEnd := (pages - 1) - m.dailyPaginator.Page
+    endDate := today.AddDate(0, 0, -pageFromEnd*m.dailyPageSize)
+    startDate := endDate.AddDate(0, 0, -(m.dailyPageSize - 1))
+
     statsMap := make(map[string]dailyStat)
-    for _, stat := range m.stats.dailyStats { statsMap[stat.date.Format("2006-01-02")] = stat }
+    for _, stat := range m.stats.dailyStats {
+        statsMap[stat.date.Format("2006-01-02")] = stat
+    }
     for d := startDate; !d.After(endDate); d = d.AddDate(0, 0, 1) {
         dateKey := d.Format("2006-01-02")
         dateStr := d.Format("Mon, Jan 2")
-        if dateKey == time.Now().Format("2006-01-02") { dateStr += " (Today)" }
+        if dateKey == today.Format("2006-01-02") {
+            dateStr += " (Today)"
+        }
         if stat, exists := statsMap[dateKey]; exists {
             bar := m.renderMiniBar(stat.words, 1000, 30)
             timeStr := formatDuration(stat.typingTime)
             line := fmt.Sprintf("%-20s %s %5d words %8s", dateStr, bar, stat.words, timeStr)
-            if dateKey == time.Now().Format("2006-01-02") {
+            if dateKey == today.Format("2006-01-02") {
                 line = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF1493")).Render(line)
             }
             content = append(content, line)
@@ -315,56 +565,29 @@ func (m statsModel) renderDaily() string {
             content = append(content, line)
         }
     }
+    // Paginator control
+    content = append(content, "")
+    content = append(content, m.dailyPaginator.View())
     return lipgloss.NewStyle().Padding(2).Render(strings.Join(content, "\n"))
 }
 
 func (m statsModel) renderWeekly() string {
     titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF1493")).MarginBottom(1)
-    var content []string
-    content = append(content, titleStyle.Render("📈 Weekly Statistics"))
-    content = append(content, "")
-    startIdx := len(m.stats.weeklyStats) - 8
-    if startIdx < 0 { startIdx = 0 }
-    for i := startIdx; i < len(m.stats.weeklyStats); i++ {
-        stat := m.stats.weeklyStats[i]
-        weekStr := fmt.Sprintf("Week of %s", stat.weekStart.Format("Jan 2"))
-        avgWords := 0
-        if stat.daysActive > 0 { avgWords = stat.totalWords / stat.daysActive }
-        bar := m.renderMiniBar(stat.totalWords, 5000, 25)
-        line := fmt.Sprintf("%-20s %s %5d words (%d days, avg %d/day)", weekStr, bar, stat.totalWords, stat.daysActive, avgWords)
-        content = append(content, line)
-    }
-    return lipgloss.NewStyle().Padding(2).Render(strings.Join(content, "\n"))
+    header := titleStyle.Render("📈 Weekly Statistics") + "\n\n"
+    return lipgloss.NewStyle().Padding(2).Render(header + m.weeklyTable.View())
 }
 
 func (m statsModel) renderTrends() string {
     titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF1493")).MarginBottom(1)
-    var content []string
-    content = append(content, titleStyle.Render("📈 Writing Trends"))
-    content = append(content, "")
-    content = append(content, lipgloss.NewStyle().Bold(true).Render("Monthly Totals:"))
-    content = append(content, "")
-    var months []string
-    for month := range m.stats.monthlyTotals { months = append(months, month) }
-    sort.Strings(months)
-    startIdx := len(months) - 6
-    if startIdx < 0 { startIdx = 0 }
-    for i := startIdx; i < len(months); i++ {
-        month := months[i]
-        stat := m.stats.monthlyTotals[month]
-        monthTime, _ := time.Parse("2006-01", month)
-        monthStr := monthTime.Format("January 2006")
-        bar := m.renderMiniBar(stat.totalWords, 20000, 25)
-        line := fmt.Sprintf("%-20s %s %6d words (%d days active)", monthStr, bar, stat.totalWords, stat.daysActive)
-        content = append(content, line)
+    header := titleStyle.Render("📈 Writing Trends") + "\n\n" + lipgloss.NewStyle().Bold(true).Render("Monthly Totals:") + "\n\n"
+    insights := []string{
+        fmt.Sprintf("• Most productive day: %s", m.stats.mostProductiveDay),
     }
-    content = append(content, "")
-    content = append(content, lipgloss.NewStyle().Bold(true).Render("Insights:"))
-    content = append(content, "")
-    content = append(content, fmt.Sprintf("• Most productive day: %s", m.stats.mostProductiveDay))
-    content = append(content, fmt.Sprintf("• Average session: %s", formatDuration(m.stats.totalTypingTime/time.Duration(m.stats.totalDays))))
-    content = append(content, fmt.Sprintf("• Total writing time: %s", formatDuration(m.stats.totalTypingTime)))
-    return lipgloss.NewStyle().Padding(2).Render(strings.Join(content, "\n"))
+    if m.stats.totalDays > 0 {
+        insights = append(insights, fmt.Sprintf("• Average session: %s", formatDuration(m.stats.totalTypingTime/time.Duration(m.stats.totalDays))))
+    }
+    insights = append(insights, fmt.Sprintf("• Total writing time: %s", formatDuration(m.stats.totalTypingTime)))
+    return lipgloss.NewStyle().Padding(2).Render(header + m.trendsTable.View() + "\n\n" + strings.Join(insights, "\n"))
 }
 
 func (m statsModel) renderAIInsights() string {
@@ -424,9 +647,10 @@ func (m statsModel) renderAIInsights() string {
 }
 
 func (m statsModel) renderFooter() string {
-    helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#666")).Padding(1, 2)
-    help := "Tab/→: Next tab • Shift+Tab/←: Previous tab • g: Generate AI insights • q/Esc: Quit"
-    return lipgloss.NewStyle().Width(m.viewport.width).BorderTop(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#444")).Render(helpStyle.Render(help))
+    helpView := m.help.View(m.keys)
+    // Footer matches main width and is centered under main content for symmetry
+    footer := lipgloss.NewStyle().Width(m.mainWidth()).BorderTop(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#444")).Padding(0, 2).Render(helpView)
+    return lipgloss.JoinHorizontal(lipgloss.Top, lipgloss.NewStyle().Width(m.sidebarWidth).Render(""), footer)
 }
 
 func (m statsModel) renderProgressBar(current, target, width int) string {
@@ -502,6 +726,154 @@ func (m statsModel) renderSparkline(days int) string {
     }
     label := lipgloss.NewStyle().Foreground(lipgloss.Color("#888")).Render("(words per day)")
     return lipgloss.JoinHorizontal(lipgloss.Top, b.String(), label)
+}
+
+// keymap and helpers
+type keymap struct {
+    NextTab       key.Binding
+    PrevTab       key.Binding
+    Quit          key.Binding
+    GenerateAI    key.Binding
+    ScrollDown    key.Binding
+    ScrollUp      key.Binding
+    PageDown      key.Binding
+    PageUp        key.Binding
+    Top           key.Binding
+    Bottom        key.Binding
+    DailyPrevPage key.Binding
+    DailyNextPage key.Binding
+}
+
+func newKeymap() keymap {
+    return keymap{
+        NextTab: key.NewBinding(key.WithKeys("tab", "right"), key.WithHelp("tab/→", "next tab")),
+        PrevTab: key.NewBinding(key.WithKeys("shift+tab", "left"), key.WithHelp("⇧tab/←", "prev tab")),
+        Quit: key.NewBinding(key.WithKeys("q", "esc", "ctrl+c"), key.WithHelp("q/esc", "quit")),
+        GenerateAI: key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "AI insights (Insights tab)")),
+        ScrollDown: key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/↓", "scroll down")),
+        ScrollUp: key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k/↑", "scroll up")),
+        PageDown: key.NewBinding(key.WithKeys("pgdown", "f"), key.WithHelp("pgdn/f", "half page ↓")),
+        PageUp: key.NewBinding(key.WithKeys("pgup", "b"), key.WithHelp("pgup/b", "half page ↑")),
+        Top: key.NewBinding(key.WithKeys("home"), key.WithHelp("home", "top")),
+        Bottom: key.NewBinding(key.WithKeys("end"), key.WithHelp("end", "bottom")),
+        DailyPrevPage: key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev page (Daily)")),
+        DailyNextPage: key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next page (Daily)")),
+    }
+}
+
+func (k keymap) ShortHelp() []key.Binding { return []key.Binding{k.PrevTab, k.NextTab, k.Quit} }
+
+func (k keymap) FullHelp() [][]key.Binding {
+    return [][]key.Binding{
+        {k.PrevTab, k.NextTab, k.DailyPrevPage, k.DailyNextPage},
+        {k.ScrollUp, k.ScrollDown, k.PageUp, k.PageDown, k.Top, k.Bottom},
+        {k.GenerateAI, k.Quit},
+    }
+}
+
+// build tables and paginator totals when stats/size change
+func (m *statsModel) rebuildTables() {
+    // Weekly table (last 8 weeks)
+    columns := []btable.Column{
+        {Title: "Week", Width: 14},
+        {Title: "Words", Width: 10},
+        {Title: "Days", Width: 6},
+        {Title: "Avg/Day", Width: 10},
+    }
+    var rows []btable.Row
+    startIdx := len(m.stats.weeklyStats) - 8
+    if startIdx < 0 {
+        startIdx = 0
+    }
+    for i := startIdx; i < len(m.stats.weeklyStats); i++ {
+        stat := m.stats.weeklyStats[i]
+        avg := 0
+        if stat.daysActive > 0 {
+            avg = stat.totalWords / stat.daysActive
+        }
+        rows = append(rows, btable.Row{
+            stat.weekStart.Format("Jan 2"),
+            fmt.Sprintf("%d", stat.totalWords),
+            fmt.Sprintf("%d", stat.daysActive),
+            fmt.Sprintf("%d", avg),
+        })
+    }
+    t := btable.New(btable.WithColumns(columns), btable.WithRows(rows), btable.WithFocused(true))
+    t.SetStyles(tableStyles())
+    width := m.mainWidth() - 6
+    if width < 40 {
+        width = m.mainWidth() - 2
+    }
+    t.SetWidth(width)
+    m.weeklyTable = t
+
+    // Trends monthly table (last 6 months)
+    var months []string
+    for month := range m.stats.monthlyTotals {
+        months = append(months, month)
+    }
+    sort.Strings(months)
+    startM := len(months) - 6
+    if startM < 0 {
+        startM = 0
+    }
+    mcols := []btable.Column{{Title: "Month", Width: 18}, {Title: "Words", Width: 10}, {Title: "Days", Width: 6}, {Title: "Time", Width: 10}}
+    var mrows []btable.Row
+    for i := startM; i < len(months); i++ {
+        key := months[i]
+        st := m.stats.monthlyTotals[key]
+        mt, _ := time.Parse("2006-01", key)
+        mrows = append(mrows, btable.Row{
+            mt.Format("Jan 2006"),
+            fmt.Sprintf("%d", st.totalWords),
+            fmt.Sprintf("%d", st.daysActive),
+            formatDuration(st.totalTime),
+        })
+    }
+    tt := btable.New(btable.WithColumns(mcols), btable.WithRows(mrows), btable.WithFocused(true))
+    tt.SetStyles(tableStyles())
+    tt.SetWidth(width)
+    m.trendsTable = tt
+}
+
+func (m *statsModel) updateDailyPaginatorTotal() {
+    totalDays := len(m.stats.dailyStats)
+    if totalDays == 0 {
+        m.dailyPaginator.SetTotalPages(1)
+        return
+    }
+    // Consider last 30 days for pagination window
+    window := 30
+    if totalDays < window {
+        window = totalDays
+    }
+    pages := window / m.dailyPageSize
+    if window%m.dailyPageSize != 0 {
+        pages++
+    }
+    if pages == 0 {
+        pages = 1
+    }
+    m.dailyPaginator.SetTotalPages(pages)
+    // Move to last page by default (most recent)
+    for m.dailyPaginator.Page < m.dailyPaginator.TotalPages-1 {
+        m.dailyPaginator.NextPage()
+    }
+}
+
+func tableStyles() btable.Styles {
+    s := btable.DefaultStyles()
+    s.Header = s.Header.
+        BorderStyle(lipgloss.NormalBorder()).
+        BorderBottom(true).
+        Bold(true).
+        BorderForeground(lipgloss.Color("#444")).
+        Foreground(lipgloss.Color("#FF1493"))
+    s.Selected = s.Selected.
+        Foreground(lipgloss.Color("#FFF")).
+        Background(lipgloss.Color("#4A1242"))
+    s.Cell = s.Cell.Foreground(lipgloss.Color("#DDD"))
+    return s
 }
 
 func formatDuration(d time.Duration) string {
