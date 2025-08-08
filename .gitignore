@@ -1,1 +1,24 @@
+# Binaries
+/river
+/bin/
+/dist/
+
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go workspace files
+go.work
+go.work.sum
+
+# IDE/editor
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+
 .crush
