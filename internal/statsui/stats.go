@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	progress "github.com/charmbracelet/bubbles/progress"
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/pelletier/go-toml/v2"
@@ -25,6 +27,9 @@ type statsModel struct {
     aiInsights  string
     aiLoading   bool
     aiError     error
+    loader      spinner.Model
+    aiLoader    spinner.Model
+    goalBar     progress.Model
 }
 
 type aggregatedStats struct {
@@ -66,14 +71,31 @@ type monthStat struct {
 }
 
 func InitModel() statsModel {
+    // Spinners for initial load and AI generation
+    ld := spinner.New()
+    ld.Spinner = spinner.MiniDot
+    ld.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF1493"))
+
+    ai := spinner.New()
+    ai.Spinner = spinner.Dot
+    ai.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF1493")).Bold(true)
+
+    // Progress bar used for "Today's Progress"
+    gb := progress.New(
+        progress.WithDefaultGradient(),
+    )
+
     return statsModel{
         tabs:        []string{"Overview", "Daily", "Weekly", "Trends", "AI Insights"},
         selectedTab: 1,
         loading:     true,
+        loader:      ld,
+        aiLoader:    ai,
+        goalBar:     gb,
     }
 }
 
-func (m statsModel) Init() tea.Cmd { return loadStatsCmd() }
+func (m statsModel) Init() tea.Cmd { return tea.Batch(loadStatsCmd(), m.loader.Tick) }
 
 func loadStatsCmd() tea.Cmd {
     return func() tea.Msg {
@@ -95,6 +117,12 @@ func (m statsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     case tea.WindowSizeMsg:
         m.viewport.width = msg.Width
         m.viewport.height = msg.Height
+        // Keep a comfortable width for progress bar
+        w := m.viewport.width - 30
+        if w < 20 {
+            w = 20
+        }
+        m.goalBar.Width = w
     case statsLoadedMsg:
         m.stats = msg.stats
         m.loading = false
@@ -107,6 +135,16 @@ func (m statsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     case aiInsightsErrorMsg:
         m.aiError = msg.err
         m.aiLoading = false
+    case spinner.TickMsg:
+        var cmds []tea.Cmd
+        var cmd tea.Cmd
+        m.loader, cmd = m.loader.Update(msg)
+        cmds = append(cmds, cmd)
+        if m.aiLoading {
+            m.aiLoader, cmd = m.aiLoader.Update(msg)
+            cmds = append(cmds, cmd)
+        }
+        return m, tea.Batch(cmds...)
     case tea.KeyMsg:
         switch msg.String() {
         case "q", "ctrl+c", "esc":
@@ -118,7 +156,7 @@ func (m statsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
         case "g":
             if m.selectedTab == 4 && !m.aiLoading && m.aiInsights == "" {
                 m.aiLoading = true
-                return m, generateAIInsightsCmd(m.stats)
+                return m, tea.Batch(m.aiLoader.Tick, generateAIInsightsCmd(m.stats))
             }
         }
     }
@@ -127,7 +165,17 @@ func (m statsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m statsModel) View() string {
     if m.loading {
-        return lipgloss.NewStyle().Width(m.viewport.width).Height(m.viewport.height).Align(lipgloss.Center, lipgloss.Center).Render("Loading stats...")
+        title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF1493")).Render("River • Stats")
+        sub := lipgloss.NewStyle().Foreground(lipgloss.Color("#888")).Render("Preparing your beautiful dashboard…")
+        load := m.loader.View()
+        box := lipgloss.NewStyle().
+            Border(lipgloss.RoundedBorder()).
+            BorderForeground(lipgloss.Color("#444")).
+            Padding(1, 2).
+            Width(m.viewport.width/2 + 10).
+            Align(lipgloss.Center, lipgloss.Center).
+            Render(fmt.Sprintf("%s\n\n%s\n\n%s", title, load, sub))
+        return lipgloss.NewStyle().Width(m.viewport.width).Height(m.viewport.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
     }
     if m.error != nil {
         return lipgloss.NewStyle().Width(m.viewport.width).Height(m.viewport.height).Align(lipgloss.Center, lipgloss.Center).Foreground(lipgloss.Color("#FF0000")).Render(fmt.Sprintf("Error loading stats: %v", m.error))
@@ -152,7 +200,7 @@ func (m statsModel) View() string {
 
 func (m statsModel) renderTabs() string {
     var tabs []string
-    tabStyle := lipgloss.NewStyle().Padding(0, 2).Margin(0, 1)
+    tabStyle := lipgloss.NewStyle().Padding(0, 2).Margin(0, 1).Foreground(lipgloss.Color("#999"))
     activeTabStyle := tabStyle.Copy().Foreground(lipgloss.Color("#FF1493")).Bold(true).Underline(true)
     for i, tab := range m.tabs {
         if i == m.selectedTab {
@@ -170,6 +218,11 @@ func (m statsModel) renderOverview() string {
     statStyle := lipgloss.NewStyle().Padding(0, 1)
     labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888"))
     valueStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFF"))
+    card := lipgloss.NewStyle().
+        Border(lipgloss.RoundedBorder()).
+        BorderForeground(lipgloss.Color("#444")).
+        Padding(1, 2).
+        Margin(0, 2, 1, 0)
     avgWordsPerDay := 0
     if m.stats.totalDays > 0 { avgWordsPerDay = m.stats.totalWords / m.stats.totalDays }
     avgTimePerDay := time.Duration(0)
@@ -177,21 +230,60 @@ func (m statsModel) renderOverview() string {
     var content []string
     content = append(content, titleStyle.Render("📊 River Statistics Overview"))
     content = append(content, "")
-    statsGrid := [][]string{
-        {statStyle.Render(labelStyle.Render("Total Words Written: ") + valueStyle.Render(fmt.Sprintf("%d", m.stats.totalWords))), statStyle.Render(labelStyle.Render("Total Time: ") + valueStyle.Render(formatDuration(m.stats.totalTypingTime)))},
-        {statStyle.Render(labelStyle.Render("Days Active: ") + valueStyle.Render(fmt.Sprintf("%d", m.stats.totalDays))), statStyle.Render(labelStyle.Render("Average Words/Day: ") + valueStyle.Render(fmt.Sprintf("%d", avgWordsPerDay)))},
-        {statStyle.Render(labelStyle.Render("Current Streak: ") + valueStyle.Render(fmt.Sprintf("%d days", m.stats.currentStreak))), statStyle.Render(labelStyle.Render("Longest Streak: ") + valueStyle.Render(fmt.Sprintf("%d days", m.stats.longestStreak)))},
-        {statStyle.Render(labelStyle.Render("Average Time/Day: ") + valueStyle.Render(formatDuration(avgTimePerDay))), statStyle.Render(labelStyle.Render("Most Productive Day: ") + valueStyle.Render(fmt.Sprintf("%s (%d words)", m.stats.mostProductiveDay, m.stats.mostProductiveWords)))},
+
+    // Metrics cards
+    left := []string{
+        statStyle.Render(labelStyle.Render("Total Words") + "  " + valueStyle.Render(fmt.Sprintf("%d", m.stats.totalWords))),
+        statStyle.Render(labelStyle.Render("Total Time") + "   " + valueStyle.Render(formatDuration(m.stats.totalTypingTime))),
+        statStyle.Render(labelStyle.Render("Days Active") + " " + valueStyle.Render(fmt.Sprintf("%d", m.stats.totalDays))),
     }
-    for _, row := range statsGrid { content = append(content, lipgloss.JoinHorizontal(lipgloss.Top, row...)) }
+    right := []string{
+        statStyle.Render(labelStyle.Render("Avg Words/Day") + " " + valueStyle.Render(fmt.Sprintf("%d", avgWordsPerDay))),
+        statStyle.Render(labelStyle.Render("Avg Time/Day") + "  " + valueStyle.Render(formatDuration(avgTimePerDay))),
+        statStyle.Render(labelStyle.Render("Current Streak") + " " + valueStyle.Render(fmt.Sprintf("%d days", m.stats.currentStreak))),
+        statStyle.Render(labelStyle.Render("Longest Streak") + " " + valueStyle.Render(fmt.Sprintf("%d days", m.stats.longestStreak))),
+    }
+
+    cards := lipgloss.JoinHorizontal(
+        lipgloss.Top,
+        card.Render(strings.Join(left, "\n")),
+        card.Render(strings.Join(right, "\n")),
+    )
+    content = append(content, cards)
+
+    // Today goal progress and sparkline
     if len(m.stats.dailyStats) > 0 {
         today := m.stats.dailyStats[len(m.stats.dailyStats)-1]
         if today.date.Format("2006-01-02") == time.Now().Format("2006-01-02") {
             content = append(content, "")
             content = append(content, titleStyle.Render("Today's Progress"))
-            content = append(content, m.renderProgressBar(today.words, 500, 40))
+            goal := 500
+            pct := float64(today.words) / float64(goal)
+            if pct > 1 {
+                pct = 1
+            }
+            bar := m.goalBar.ViewAs(pct)
+            meta := lipgloss.NewStyle().Foreground(lipgloss.Color("#999")).Render(fmt.Sprintf("%d/%d words", today.words, goal))
+            content = append(content, lipgloss.JoinHorizontal(lipgloss.Top, bar, " ", meta))
         }
     }
+
+    // Recent 14-day sparkline
+    if len(m.stats.dailyStats) > 0 {
+        content = append(content, "")
+        content = append(content, titleStyle.Render("Last 14 Days"))
+        content = append(content, m.renderSparkline(14))
+    }
+
+    // Most productive day callout
+    if m.stats.mostProductiveDay != "" {
+        callout := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF1493")).Bold(true).Render("★ ") +
+            lipgloss.NewStyle().Bold(true).Render("Most productive: ") +
+            lipgloss.NewStyle().Foreground(lipgloss.Color("#FFF")).Render(fmt.Sprintf("%s (%d words)", m.stats.mostProductiveDay, m.stats.mostProductiveWords))
+        content = append(content, "")
+        content = append(content, callout)
+    }
+
     return lipgloss.NewStyle().Padding(2).Render(strings.Join(content, "\n"))
 }
 
@@ -286,10 +378,14 @@ func (m statsModel) renderAIInsights() string {
     content = append(content, "")
 
     if m.aiLoading {
-        loadingStyle := lipgloss.NewStyle().
-            Foreground(lipgloss.Color("#FF1493")).
-            Padding(2, 0)
-        return loadingStyle.Render("🔮 Analyzing your writing patterns...\n\nThis may take a few moments as AI reviews your recent notes.")
+        loading := lipgloss.JoinVertical(
+            lipgloss.Left,
+            lipgloss.NewStyle().Foreground(lipgloss.Color("#FF1493")).Render("🔮 Analyzing your writing patterns…"),
+            "",
+            m.aiLoader.View(),
+            lipgloss.NewStyle().Foreground(lipgloss.Color("#888")).Render("This may take a few moments as AI reviews your recent notes."),
+        )
+        return lipgloss.NewStyle().Padding(2, 0).Render(loading)
     }
 
     if m.aiError != nil {
@@ -329,7 +425,7 @@ func (m statsModel) renderAIInsights() string {
 
 func (m statsModel) renderFooter() string {
     helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#666")).Padding(1, 2)
-    help := "Tab/→: Next tab • Shift+Tab/←: Previous tab • q/Esc: Quit"
+    help := "Tab/→: Next tab • Shift+Tab/←: Previous tab • g: Generate AI insights • q/Esc: Quit"
     return lipgloss.NewStyle().Width(m.viewport.width).BorderTop(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#444")).Render(helpStyle.Render(help))
 }
 
@@ -370,6 +466,42 @@ func (m statsModel) renderEmptyBar(width int) string {
     var bar strings.Builder
     for i := 0; i < width; i++ { bar.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#333")).Render("─")) }
     return bar.String()
+}
+
+// renderSparkline shows the last n days as a unicode sparkline.
+func (m statsModel) renderSparkline(days int) string {
+    if len(m.stats.dailyStats) == 0 {
+        return ""
+    }
+    blocks := []rune("▁▂▃▄▅▆▇█")
+    start := len(m.stats.dailyStats) - days
+    if start < 0 {
+        start = 0
+    }
+    slice := m.stats.dailyStats[start:]
+    max := 0
+    for _, d := range slice {
+        if d.words > max {
+            max = d.words
+        }
+    }
+    if max == 0 {
+        return strings.Repeat(string(blocks[0])+" ", len(slice))
+    }
+    var b strings.Builder
+    for _, d := range slice {
+        idx := int(float64(d.words) / float64(max) * float64(len(blocks)-1))
+        if idx < 0 {
+            idx = 0
+        }
+        if idx > len(blocks)-1 {
+            idx = len(blocks) - 1
+        }
+        b.WriteRune(blocks[idx])
+        b.WriteRune(' ')
+    }
+    label := lipgloss.NewStyle().Foreground(lipgloss.Color("#888")).Render("(words per day)")
+    return lipgloss.JoinHorizontal(lipgloss.Top, b.String(), label)
 }
 
 func formatDuration(d time.Duration) string {
