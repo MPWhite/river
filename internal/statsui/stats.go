@@ -57,7 +57,7 @@ func InitModel() statsModel {
 	// Create a gradient progress bar
 	p := progress.New(progress.WithDefaultGradient())
 	
-	return statsModel{
+    return statsModel{
 		loading:  true,
 		spinner:  s,
 		progress: p,
@@ -73,13 +73,13 @@ func (m statsModel) Init() tea.Cmd {
 }
 
 func loadStatsCmd() tea.Cmd {
-	return func() tea.Msg {
-		stats, err := collectAllStats()
-		if err != nil {
-			return statsErrorMsg{err}
-		}
-		return statsLoadedMsg{stats}
-	}
+    return func() tea.Msg {
+        stats, err := collectAllStats()
+        if err != nil {
+            return statsErrorMsg{err}
+        }
+        return statsLoadedMsg{stats}
+    }
 }
 
 type statsLoadedMsg struct{ stats aggregatedStats }
@@ -88,8 +88,8 @@ type statsErrorMsg struct{ err error }
 func (m statsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
+    switch msg := msg.(type) {
+    case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		
@@ -109,19 +109,19 @@ func (m statsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.progress.Width = 20
 		}
 		
-	case statsLoadedMsg:
-		m.stats = msg.stats
-		m.loading = false
+    case statsLoadedMsg:
+        m.stats = msg.stats
+        m.loading = false
 		m.viewport.SetContent(m.renderContent())
 		
-	case statsErrorMsg:
-		m.error = msg.err
-		m.loading = false
+    case statsErrorMsg:
+        m.error = msg.err
+        m.loading = false
 		
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "ctrl+c", "esc":
-			return m, tea.Quit
+    case tea.KeyMsg:
+        switch msg.String() {
+        case "q", "ctrl+c", "esc":
+            return m, tea.Quit
 		case "j", "down":
 			m.viewport.LineDown(1)
 		case "k", "up":
@@ -149,7 +149,7 @@ func (m statsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m statsModel) View() string {
-	if m.loading {
+    if m.loading {
 		// Create a nice loading box
 		loadingBox := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -170,7 +170,7 @@ func (m statsModel) View() string {
 		)
 	}
 	
-	if m.error != nil {
+    if m.error != nil {
 		errorBox := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("9")).
@@ -308,11 +308,11 @@ func (m statsModel) renderStatsTable() string {
 		Row("Current Streak", fmt.Sprintf("%d days", m.stats.currentStreak)).
 		Row("Average Words/Day", fmt.Sprintf("%.0f", float64(m.stats.totalWords)/float64(max(m.stats.totalDays, 1))))
 	
-	titleStyle := lipgloss.NewStyle().
+    titleStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("205")).
-		Bold(true).
-		MarginBottom(1)
-	
+        Bold(true).
+        MarginBottom(1)
+
 	return lipgloss.JoinVertical(lipgloss.Left,
 		titleStyle.Render("📊 Overall Statistics"),
 		t.Render(),
@@ -343,7 +343,7 @@ func (m statsModel) renderWeeklyTable() string {
 	
 	titleStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("205")).
-		Bold(true).
+            Bold(true).
 		MarginBottom(1)
 	
 	return lipgloss.JoinVertical(lipgloss.Left,
@@ -381,27 +381,27 @@ func (m statsModel) renderRecentNotesList() string {
 }
 
 func (m statsModel) renderMiniBar(current, max, width int) string {
-	progress := float64(current) / float64(max)
+    progress := float64(current) / float64(max)
 	if progress > 1.0 {
 		progress = 1.0
 	}
-	filled := int(progress * float64(width))
+    filled := int(progress * float64(width))
 	
 	// Use gradient colors for the bar
-	var bar strings.Builder
-	for i := 0; i < width; i++ {
-		if i < filled {
+    var bar strings.Builder
+    for i := 0; i < width; i++ {
+        if i < filled {
 			// Gradient from pink to purple
 			color := 205 - (i * 2)
 			if color < 165 {
 				color = 165
 			}
 			bar.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(fmt.Sprintf("%d", color))).Render("█"))
-		} else {
+        } else {
 			bar.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("237")).Render("░"))
-		}
-	}
-	return bar.String()
+        }
+    }
+    return bar.String()
 }
 
 func max(a, b int) int {
@@ -412,13 +412,13 @@ func max(a, b int) int {
 }
 
 func collectAllStats() (aggregatedStats, error) {
-	homeDir, err := os.UserHomeDir()
+    homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return aggregatedStats{}, err
 	}
 	
-	riverDir := filepath.Join(homeDir, "river", "notes")
-	files, err := filepath.Glob(filepath.Join(riverDir, "*.md"))
+    riverDir := filepath.Join(homeDir, "river", "notes")
+    files, err := filepath.Glob(filepath.Join(riverDir, "*.md"))
 	if err != nil {
 		return aggregatedStats{}, err
 	}
@@ -429,16 +429,16 @@ func collectAllStats() (aggregatedStats, error) {
 	var notes []noteInfo
 	today := time.Now().Format("2006-01-02")
 	
-	for _, file := range files {
-		base := filepath.Base(file)
-		dateStr := strings.TrimSuffix(base, ".md")
+    for _, file := range files {
+        base := filepath.Base(file)
+        dateStr := strings.TrimSuffix(base, ".md")
 		
-		date, err := time.Parse("2006-01-02", dateStr)
+        date, err := time.Parse("2006-01-02", dateStr)
 		if err != nil {
 			continue
 		}
 		
-		content, err := os.ReadFile(file)
+        content, err := os.ReadFile(file)
 		if err != nil {
 			continue
 		}
