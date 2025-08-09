@@ -243,7 +243,6 @@ func (m statsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
             if !ok { done = false }
             if done {
                 m.animate = false
-                return m, nil
             }
             return m, animTickCmd()
         }
@@ -290,48 +289,32 @@ func (m statsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m statsModel) View() string {
     if m.loading {
-        title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF1493")).Render("River • Stats")
-        sub := lipgloss.NewStyle().Foreground(lipgloss.Color("#888")).Render("Preparing your beautiful dashboard…")
-        load := m.loader.View()
-        box := lipgloss.NewStyle().
-            Border(lipgloss.RoundedBorder()).
-            BorderForeground(lipgloss.Color("#444")).
-            Padding(1, 2).
-            Width(m.viewport.width/2 + 10).
+        return lipgloss.NewStyle().
+            Width(m.viewport.width).
+            Height(m.viewport.height).
             Align(lipgloss.Center, lipgloss.Center).
-            Render(fmt.Sprintf("%s\n\n%s\n\n%s", title, load, sub))
-        return lipgloss.NewStyle().Width(m.viewport.width).Height(m.viewport.height).Align(lipgloss.Center, lipgloss.Center).Render(box)
+            Render("Loading...")
     }
     if m.error != nil {
-        return lipgloss.NewStyle().Width(m.viewport.width).Height(m.viewport.height).Align(lipgloss.Center, lipgloss.Center).Foreground(lipgloss.Color("#FF0000")).Render(fmt.Sprintf("Error loading stats: %v", m.error))
+        return lipgloss.NewStyle().
+            Width(m.viewport.width).
+            Height(m.viewport.height).
+            Align(lipgloss.Center, lipgloss.Center).
+            Render(fmt.Sprintf("Error: %v", m.error))
     }
-    if m.showHelp {
-        return m.renderHelpOverlay()
-    }
-
-    sidebar := m.renderSidebar()
-    var body string
-    switch m.selectedTab {
-    case 0:
-        body = m.renderOverview()
-    case 1:
-        body = m.renderDaily()
-    case 2:
-        body = m.renderWeekly()
-    case 3:
-        body = m.renderTrends()
-    case 4:
-        body = m.renderAIInsights()
-    }
-    // Wrap body with a banner header
-    banner := m.renderHeaderBanner()
-    // Add symmetrical horizontal padding for the entire main area content
-    mainPad := lipgloss.NewStyle().Padding(0, 2)
-    m.contentVP.SetContent(mainPad.Render(lipgloss.JoinVertical(lipgloss.Top, banner, body)))
-    footer := m.renderFooter()
-    // Ensure main area is the remaining width for symmetry
-    mainArea := lipgloss.NewStyle().Width(m.mainWidth()).Render(lipgloss.JoinVertical(lipgloss.Top, m.contentVP.View(), footer))
-    return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, mainArea)
+    
+    // Just a minimal page with basic info
+    content := lipgloss.NewStyle().
+        Padding(2).
+        Render(fmt.Sprintf("Words: %d\nDays: %d\nStreak: %d\n\nPress q to quit", 
+            m.stats.totalWords,
+            m.stats.totalDays,
+            m.stats.currentStreak))
+    
+    return lipgloss.NewStyle().
+        Width(m.viewport.width).
+        Height(m.viewport.height).
+        Render(content)
 }
 
 func (m statsModel) renderTabs() string {
@@ -401,31 +384,39 @@ func (m statsModel) renderHeaderBanner() string {
     // Big banner with animated counters
     title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFB6C1")).Render("Writing Stats")
     subtitle := lipgloss.NewStyle().Foreground(lipgloss.Color("#DDD")).Render("Beautiful insights into your writing practice")
-    // make counters equally sized to fill main width for symmetry
-    cards := []string{
-        m.counterCard("Words", fmt.Sprintf("%d", m.totalWordsAnim)),
-        m.counterCard("Time", formatDuration(m.totalTimeAnim)),
-        m.counterCard("Days", fmt.Sprintf("%d", m.daysActiveAnim)),
-        m.counterCard("Streak", fmt.Sprintf("%d", m.streakAnim)),
-        m.counterCard("Longest", fmt.Sprintf("%d", m.longestStreakAnim)),
-    }
-    // compute card width to fill the available width with minimal gaps
-    totalPadding := 2 * len(cards) // right margins inside card
-    available := m.mainWidth() - 4 // banner padding
-    gaps := (len(cards) - 1) * 2
-    per := (available - totalPadding - gaps) / len(cards)
-    if per < 12 { per = 12 }
-    for i := range cards {
-        cards[i] = lipgloss.NewStyle().Width(per).Render(cards[i])
-    }
-    counters := lipgloss.PlaceHorizontal(m.mainWidth()-4, lipgloss.Left, lipgloss.JoinHorizontal(lipgloss.Top, cards...))
+    
+    // Simple counter display without boxes
+    counterStyle := lipgloss.NewStyle().Padding(1, 3)
+    labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#999"))
+    valueStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFF"))
+    
+    counters := lipgloss.JoinHorizontal(lipgloss.Top,
+        counterStyle.Render(lipgloss.JoinVertical(lipgloss.Center,
+            labelStyle.Render("Words"),
+            valueStyle.Render(fmt.Sprintf("%d", m.totalWordsAnim)))),
+        counterStyle.Render(lipgloss.JoinVertical(lipgloss.Center,
+            labelStyle.Render("Time"),
+            valueStyle.Render(formatDuration(m.totalTimeAnim)))),
+        counterStyle.Render(lipgloss.JoinVertical(lipgloss.Center,
+            labelStyle.Render("Days"),
+            valueStyle.Render(fmt.Sprintf("%d", m.daysActiveAnim)))),
+        counterStyle.Render(lipgloss.JoinVertical(lipgloss.Center,
+            labelStyle.Render("Streak"),
+            valueStyle.Render(fmt.Sprintf("%d", m.streakAnim)))),
+        counterStyle.Render(lipgloss.JoinVertical(lipgloss.Center,
+            labelStyle.Render("Longest"),
+            valueStyle.Render(fmt.Sprintf("%d", m.longestStreakAnim)))),
+    )
+    
     banner := lipgloss.NewStyle().
         Border(lipgloss.RoundedBorder()).
         BorderForeground(lipgloss.Color("#444")).
         Background(lipgloss.Color("#2A0F25")).
-        Padding(1, 2).Margin(0, 0, 1, 0).
-        Width(m.mainWidth())
-    return banner.Render(lipgloss.JoinVertical(lipgloss.Left, title, subtitle, "", counters))
+        Padding(1, 2).
+        Width(m.mainWidth() - 4).
+        Align(lipgloss.Center)
+    
+    return banner.Render(lipgloss.JoinVertical(lipgloss.Center, title, subtitle, counters))
 }
 
 func (m statsModel) counterCard(label, value string) string {
@@ -436,6 +427,18 @@ func (m statsModel) counterCard(label, value string) string {
         BorderForeground(lipgloss.Color("#444")).
         Padding(1, 2).MarginRight(2)
     return card.Render(lipgloss.JoinVertical(lipgloss.Left, l, v))
+}
+
+func (m statsModel) counterCardFixed(label, value string, width int) string {
+    l := lipgloss.NewStyle().Foreground(lipgloss.Color("#AAA")).Align(lipgloss.Center).Width(width-6).Render(label)
+    v := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFF")).Align(lipgloss.Center).Width(width-6).Render(value)
+    card := lipgloss.NewStyle().
+        Border(lipgloss.NormalBorder()).
+        BorderForeground(lipgloss.Color("#444")).
+        Padding(0, 1).
+        Width(width).
+        MarginRight(2)
+    return card.Render(lipgloss.JoinVertical(lipgloss.Center, l, v))
 }
 
 func (m statsModel) renderHelpOverlay() string {
@@ -544,23 +547,25 @@ func (m statsModel) renderDaily() string {
     for _, stat := range m.stats.dailyStats {
         statsMap[stat.date.Format("2006-01-02")] = stat
     }
+    
     for d := startDate; !d.After(endDate); d = d.AddDate(0, 0, 1) {
         dateKey := d.Format("2006-01-02")
         dateStr := d.Format("Mon, Jan 2")
         if dateKey == today.Format("2006-01-02") {
             dateStr += " (Today)"
         }
+        
         if stat, exists := statsMap[dateKey]; exists {
             bar := m.renderMiniBar(stat.words, 1000, 30)
             timeStr := formatDuration(stat.typingTime)
-            line := fmt.Sprintf("%-20s %s %5d words %8s", dateStr, bar, stat.words, timeStr)
+            line := fmt.Sprintf("%-20s %s %6d words  %7s", dateStr, bar, stat.words, timeStr)
             if dateKey == today.Format("2006-01-02") {
                 line = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF1493")).Render(line)
             }
             content = append(content, line)
         } else {
             emptyBar := m.renderEmptyBar(30)
-            line := fmt.Sprintf("%-20s %s %5s %8s", dateStr, emptyBar, "-", "-")
+            line := fmt.Sprintf("%-20s %s      -         -", dateStr, emptyBar)
             line = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render(line)
             content = append(content, line)
         }
@@ -568,7 +573,7 @@ func (m statsModel) renderDaily() string {
     // Paginator control
     content = append(content, "")
     content = append(content, m.dailyPaginator.View())
-    return lipgloss.NewStyle().Padding(2).Render(strings.Join(content, "\n"))
+    return lipgloss.NewStyle().Padding(1, 2).Render(strings.Join(content, "\n"))
 }
 
 func (m statsModel) renderWeekly() string {
@@ -648,9 +653,14 @@ func (m statsModel) renderAIInsights() string {
 
 func (m statsModel) renderFooter() string {
     helpView := m.help.View(m.keys)
-    // Footer matches main width and is centered under main content for symmetry
-    footer := lipgloss.NewStyle().Width(m.mainWidth()).BorderTop(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#444")).Padding(0, 2).Render(helpView)
-    return lipgloss.JoinHorizontal(lipgloss.Top, lipgloss.NewStyle().Width(m.sidebarWidth).Render(""), footer)
+    // Footer aligned with main content area
+    return lipgloss.NewStyle().
+        Width(m.mainWidth()).
+        BorderTop(true).
+        BorderStyle(lipgloss.NormalBorder()).
+        BorderForeground(lipgloss.Color("#444")).
+        Padding(0, 2).
+        Render(helpView)
 }
 
 func (m statsModel) renderProgressBar(current, target, width int) string {
@@ -937,10 +947,26 @@ func calculateCurrentStreak(dailyStats []dailyStat) int {
     streak := 0
     today := time.Now()
     todayKey := today.Format("2006-01-02")
-    if !dateMap[todayKey] { return 0 }
-    for d := today; ; d = d.AddDate(0, 0, -1) {
+    
+    // Check if we have an entry for today or yesterday
+    yesterdayKey := today.AddDate(0, 0, -1).Format("2006-01-02")
+    if !dateMap[todayKey] && !dateMap[yesterdayKey] { 
+        return 0 
+    }
+    
+    // Start from today if we have it, otherwise from yesterday
+    startDate := today
+    if !dateMap[todayKey] {
+        startDate = today.AddDate(0, 0, -1)
+    }
+    
+    for d := startDate; ; d = d.AddDate(0, 0, -1) {
         dateKey := d.Format("2006-01-02")
-        if dateMap[dateKey] { streak++ } else { break }
+        if dateMap[dateKey] { 
+            streak++ 
+        } else { 
+            break 
+        }
     }
     return streak
 }
