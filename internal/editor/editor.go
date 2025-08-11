@@ -164,15 +164,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.progress.Width = m.width - 4
 
 		// Calculate textarea size
-		headerHeight := 2 // Title
 		promptHeight := 0
 		if m.prompt != "" {
-			promptHeight = 4 // Prompt box (reduced from 5)
+			promptHeight = 4 // Prompt box
 		}
-		progressHeight := 3 // Progress bar and stats
-		footerHeight := 2   // Help text
+		progressHeight := 2 // Progress bar only
 
-		textAreaHeight := m.height - headerHeight - promptHeight - progressHeight - footerHeight - 1 // Less padding
+		textAreaHeight := m.height - promptHeight - progressHeight - 1
 		if textAreaHeight < 10 {
 			textAreaHeight = 10
 		}
@@ -221,17 +219,8 @@ func (m Model) View() string {
 		return "Loading..."
 	}
 
-	// Title
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("205")).
-		Width(m.width).
-		Align(lipgloss.Center)
-
-	title := titleStyle.Render(fmt.Sprintf("✍️  River - %s", time.Now().Format("Monday, January 2, 2006")))
-
 	// Build view parts
-	parts := []string{title}
+	var parts []string
 
 	// Prompt box (if we have one)
 	if m.prompt != "" {
@@ -240,7 +229,7 @@ func (m Model) View() string {
 			BorderForeground(lipgloss.Color("62")).
 			Foreground(lipgloss.Color("251")).
 			Padding(0, 2).
-			Margin(0, 2). // Reduced vertical margin from 1 to 0
+			Margin(0, 2).
 			Width(m.width - 6)
 
 		promptDisplay := promptBox.Render("💭 " + m.prompt)
@@ -250,7 +239,7 @@ func (m Model) View() string {
 	// Editor
 	editorBox := lipgloss.NewStyle().
 		Padding(0, 2).
-		Margin(0, 0) // No margin for tighter spacing
+		Margin(0, 0)
 
 	parts = append(parts, editorBox.Render(m.textarea.View()))
 
@@ -265,31 +254,7 @@ func (m Model) View() string {
 		Padding(0, 2).
 		Margin(0, 0)
 
-	// Word count stats
-	statsStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241")).
-		Width(m.width - 4).
-		Align(lipgloss.Center).
-		MarginBottom(1)
-
-	stats := fmt.Sprintf("%d / %d words", m.wordCount, targetWords)
-	if m.wordCount >= targetWords {
-		statsStyle = statsStyle.Foreground(lipgloss.Color("42")) // Green when target reached
-		stats = fmt.Sprintf("✓ %d / %d words - Target reached!", m.wordCount, targetWords)
-	}
-
 	parts = append(parts, progressBox.Render(m.progress.ViewAs(percent)))
-	parts = append(parts, statsStyle.Render(stats))
-
-	// Help
-	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Width(m.width).
-		Align(lipgloss.Center)
-
-	help := helpStyle.Render("ctrl+s: save • ctrl+c: quit")
-	parts = append(parts, help)
 
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
-
