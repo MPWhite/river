@@ -78,16 +78,61 @@ func loadTodayFile() (content string, prompt string, filename string) {
 }
 
 func getPromptForToday() string {
-	prompts := []string{
+	// Try to load prompts from the AI-generated prompts file
+	homeDir, _ := os.UserHomeDir()
+	riverDir := filepath.Join(homeDir, "river", "notes")
+	promptsFile := filepath.Join(riverDir, ".prompts")
+	
+	// Check if prompts file exists and was generated recently (within 7 days)
+	fileInfo, err := os.Stat(promptsFile)
+	if err == nil {
+		// Check if file is less than 7 days old
+		if time.Since(fileInfo.ModTime()) < 7*24*time.Hour {
+			// Read the prompts file
+			data, err := os.ReadFile(promptsFile)
+			if err == nil {
+				lines := strings.Split(string(data), "\n")
+				var prompts []string
+				
+				for _, line := range lines {
+					// Skip header line and empty lines
+					if strings.HasPrefix(line, "#") || strings.TrimSpace(line) == "" {
+						continue
+					}
+					// Extract prompt text (format: "N. Prompt text")
+					if idx := strings.Index(line, ". "); idx > 0 {
+						prompt := strings.TrimSpace(line[idx+2:])
+						if prompt != "" {
+							prompts = append(prompts, prompt)
+						}
+					}
+				}
+				
+				if len(prompts) > 0 {
+					// Use day of year modulo number of prompts to select one
+					dayOfYear := time.Now().YearDay()
+					return prompts[(dayOfYear-1)%len(prompts)]
+				}
+			}
+		}
+	}
+	
+	// Fallback to default prompts if no AI prompts available
+	defaultPrompts := []string{
 		"What are three things you're grateful for today?",
 		"What's one small win you can achieve today?",
 		"How do you want to feel at the end of today?",
 		"What would make today great?",
 		"What's your main focus for today?",
+		"What challenge did you overcome recently?",
+		"What's bringing you joy right now?",
+		"What lesson have you learned this week?",
+		"What are you looking forward to?",
+		"How have you grown lately?",
 	}
 
 	dayOfYear := time.Now().YearDay()
-	return prompts[(dayOfYear-1)%len(prompts)]
+	return defaultPrompts[(dayOfYear-1)%len(defaultPrompts)]
 }
 
 func countWords(text string) int {

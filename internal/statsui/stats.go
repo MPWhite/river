@@ -54,9 +54,10 @@ const (
 	tabOverview tab = iota
 	tabDaily
 	tabWeekly
+	tabPrompts
 )
 
-var tabNames = []string{"Overview", "Daily", "Weekly"}
+var tabNames = []string{"Overview", "Daily", "Weekly", "Prompts"}
 
 type keyMap struct {
 	Tab   key.Binding
@@ -197,10 +198,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Quit):
 			return m, tea.Quit
 		case key.Matches(msg, keys.Tab), key.Matches(msg, keys.Right):
-			m.activeTab = (m.activeTab + 1) % 3
+			m.activeTab = tab((int(m.activeTab) + 1) % len(tabNames))
 			m.scrollY = 0
 		case key.Matches(msg, keys.Left):
-			m.activeTab = (m.activeTab + 2) % 3
+			m.activeTab = tab((int(m.activeTab) + len(tabNames) - 1) % len(tabNames))
 			m.scrollY = 0
 		case key.Matches(msg, keys.Down):
 			if m.scrollY < m.maxScrollY {
@@ -365,6 +366,8 @@ func (m Model) renderContent() string {
 		return m.renderDaily()
 	case tabWeekly:
 		return m.renderWeekly()
+	case tabPrompts:
+		return m.renderPrompts()
 	default:
 		return ""
 	}
@@ -754,6 +757,129 @@ func (m Model) analyzePatterns() string {
 	}
 
 	return strings.Join(patterns, "\n")
+}
+
+func (m Model) renderPrompts() string {
+	titleStyle := lipgloss.NewStyle().
+		Foreground(highlight).
+		Bold(true).
+		MarginBottom(1)
+
+	sectionStyle := lipgloss.NewStyle().
+		MarginLeft(2).
+		MarginBottom(1)
+
+	sections := []string{}
+
+	// Check for existing prompts file
+	homeDir, _ := os.UserHomeDir()
+	riverDir := filepath.Join(homeDir, "river", "notes")
+	promptsFile := filepath.Join(riverDir, ".prompts")
+
+	fileInfo, err := os.Stat(promptsFile)
+	if err != nil {
+		// No prompts file exists
+		sections = append(sections,
+			titleStyle.Render("✨ AI-Generated Prompts"),
+			sectionStyle.Render("No personalized prompts found.\n\nRun 'river prompts' to generate prompts based on your recent entries!"))
+	} else {
+		// Load and display prompts
+		data, err := os.ReadFile(promptsFile)
+		if err != nil {
+			sections = append(sections,
+				titleStyle.Render("⚠️ Error"),
+				sectionStyle.Render("Could not read prompts file."))
+		} else {
+			lines := strings.Split(string(data), "\n")
+			var prompts []string
+			var generatedDate string
+
+			for _, line := range lines {
+				// Extract generation date
+				if strings.HasPrefix(line, "# Generated on") {
+					generatedDate = strings.TrimPrefix(line, "# Generated on ")
+					continue
+				}
+				// Skip empty lines
+				if strings.TrimSpace(line) == "" {
+					continue
+				}
+				// Extract prompt text (format: "N. Prompt text")
+				if idx := strings.Index(line, ". "); idx > 0 {
+					prompt := strings.TrimSpace(line[idx+2:])
+					if prompt != "" {
+						prompts = append(prompts, line)
+					}
+				}
+			}
+
+			// Check if prompts are stale (older than 7 days)
+			daysSinceGeneration := int(time.Since(fileInfo.ModTime()).Hours() / 24)
+			freshnessIndicator := "🟢"
+			freshnessText := fmt.Sprintf("Generated %d days ago", daysSinceGeneration)
+			
+			if daysSinceGeneration >= 5 {
+				freshnessIndicator = "🟡"
+				freshnessText += " (consider regenerating soon)"
+			}
+			if daysSinceGeneration >= 7 {
+				freshnessIndicator = "🔴"
+				freshnessText = "Prompts are stale! Run 'river prompts' to refresh"
+			}
+
+			sections = append(sections,
+				titleStyle.Render("✨ Upcoming Journal Prompts"))
+
+			if generatedDate != "" {
+				metaStyle := lipgloss.NewStyle().
+					Foreground(subtle).
+					MarginLeft(2).
+					MarginBottom(1)
+				sections = append(sections,
+					metaStyle.Render(fmt.Sprintf("%s %s", freshnessIndicator, freshnessText)))
+			}
+
+			// Show which prompt is for today
+			dayOfYear := time.Now().YearDay()
+			todayIndex := (dayOfYear - 1) % len(prompts)
+
+			promptStyle := lipgloss.NewStyle().
+				MarginLeft(2).
+				MarginBottom(1)
+
+			todayStyle := lipgloss.NewStyle().
+				Foreground(special).
+				Bold(true).
+				MarginLeft(2).
+				MarginBottom(1)
+
+			for i, prompt := range prompts {
+				if i == todayIndex {
+					sections = append(sections,
+						todayStyle.Render(fmt.Sprintf("📌 TODAY: %s", prompt)))
+				} else {
+					dayOffset := i - todayIndex
+					if dayOffset < 0 {
+						dayOffset += len(prompts)
+					}
+					futureDate := time.Now().AddDate(0, 0, dayOffset)
+					datePrefix := futureDate.Format("Mon, Jan 2")
+					sections = append(sections,
+						promptStyle.Render(fmt.Sprintf("   %s: %s", datePrefix, prompt)))
+				}
+			}
+
+			// Add tip
+			tipStyle := lipgloss.NewStyle().
+				Foreground(subtle).
+				MarginTop(2).
+				MarginLeft(2)
+			sections = append(sections,
+				tipStyle.Render("\n💡 Tip: Run 'river prompts' weekly for fresh, personalized prompts!"))
+		}
+	}
+
+	return strings.Join(sections, "\n")
 }
 
 func collectStats() (*stats, error) {
