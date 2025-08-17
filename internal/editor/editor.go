@@ -260,7 +260,7 @@ func (m Model) View() string {
 	helpStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("240")).
 		Padding(0, 2)
-	
+
 	helpText := fmt.Sprintf("%d words • ^S save • ^C quit", m.wordCount)
 	parts = append(parts, helpStyle.Render(helpText))
 
