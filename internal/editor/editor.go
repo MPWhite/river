@@ -256,5 +256,13 @@ func (m Model) View() string {
 
 	parts = append(parts, progressBox.Render(m.progress.ViewAs(percent)))
 
+	// Minimal help text
+	helpStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("240")).
+		Padding(0, 2)
+	
+	helpText := fmt.Sprintf("%d words • ^S save • ^C quit", m.wordCount)
+	parts = append(parts, helpStyle.Render(helpText))
+
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
