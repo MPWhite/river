@@ -12,6 +12,36 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 )
 
+// loadAPIKey loads the API key from environment or config file
+func loadAPIKey() string {
+	// First check environment variable
+	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
+		return apiKey
+	}
+
+	// Then check config file
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+
+	configPath := filepath.Join(homeDir, "river", ".config")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return ""
+	}
+
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 && parts[0] == "ANTHROPIC_API_KEY" {
+			return strings.TrimSpace(parts[1])
+		}
+	}
+
+	return ""
+}
+
 // getRecentNotes reads notes from the last few days
 func getRecentNotes(days int) (string, error) {
 	homeDir, err := os.UserHomeDir()
@@ -59,9 +89,9 @@ func getRecentNotes(days int) (string, error) {
 }
 
 func callAnthropic(prompt string) (string, error) {
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	apiKey := loadAPIKey()
 	if apiKey == "" {
-		return "", fmt.Errorf("ANTHROPIC_API_KEY environment variable not set")
+		return "", fmt.Errorf("No API key found. Run 'river onboard' to set up AI features")
 	}
 	client := anthropic.NewClient()
 	systemPrompt := `You are an AI assistant helping with personal productivity. Based on the provided notes from the last few days, generate organized lists of TODOs in different categories.
@@ -125,9 +155,9 @@ Format your response with clear section headers and numbered lists under each. B
 }
 
 func callAnthropicForInsights(prompt string) (string, error) {
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	apiKey := loadAPIKey()
 	if apiKey == "" {
-		return "", fmt.Errorf("ANTHROPIC_API_KEY environment variable not set")
+		return "", fmt.Errorf("No API key found. Run 'river onboard' to set up AI features")
 	}
 	client := anthropic.NewClient()
 	systemPrompt := `You are an AI assistant specialized in analyzing personal notes to identify patterns, themes, and insights. Based on the provided notes from the last few days, provide a thoughtful analysis.
@@ -181,9 +211,9 @@ Format your response with clear section headers and insightful commentary. Be en
 }
 
 func callAnthropicForSimpleTodos(prompt string) (string, error) {
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	apiKey := loadAPIKey()
 	if apiKey == "" {
-		return "", fmt.Errorf("ANTHROPIC_API_KEY environment variable not set")
+		return "", fmt.Errorf("No API key found. Run 'river onboard' to set up AI features")
 	}
 	client := anthropic.NewClient()
 	systemPrompt := `You are an AI assistant that extracts actionable TODOs from personal notes. Based on the provided notes, identify clear, specific tasks that need to be completed.
@@ -229,9 +259,9 @@ Keep the list focused and practical - aim for quality over quantity.`
 }
 
 func callAnthropicForPrompts(notes string) ([]string, error) {
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	apiKey := loadAPIKey()
 	if apiKey == "" {
-		return nil, fmt.Errorf("ANTHROPIC_API_KEY environment variable not set")
+		return nil, fmt.Errorf("No API key found. Run 'river onboard' to set up AI features")
 	}
 	client := anthropic.NewClient()
 	systemPrompt := `You are an AI assistant that creates personalized journal prompts based on someone's recent journal entries. Your goal is to help them reflect more deeply, explore unresolved thoughts, and continue their personal growth journey.
@@ -303,9 +333,9 @@ Format your response as a JSON array of strings, with exactly 7 prompts. Each pr
 }
 
 func callAnthropicForStatsInsights(stats AggregatedStats, recentNotes string) (string, error) {
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	apiKey := loadAPIKey()
 	if apiKey == "" {
-		return "", fmt.Errorf("ANTHROPIC_API_KEY environment variable not set")
+		return "", fmt.Errorf("No API key found. Run 'river onboard' to set up AI features")
 	}
 	client := anthropic.NewClient()
 	statsSummary := fmt.Sprintf(`Writing Statistics Summary:
@@ -407,7 +437,6 @@ func GenerateTodos() error {
 	}
 	fmt.Println("\n✨ Here are some TODOs based on your recent notes:")
 	fmt.Println(todos)
-	fmt.Println("\n💡 Tip: Add your API key with: export ANTHROPIC_API_KEY=your_key_here")
 	return nil
 }
 
@@ -428,7 +457,6 @@ func GenerateInsights() error {
 	}
 	fmt.Println("\n💡 Here are insights from your recent notes:")
 	fmt.Println(insights)
-	fmt.Println("\n💡 Tip: Add your API key with: export ANTHROPIC_API_KEY=your_key_here")
 	return nil
 }
 
@@ -449,7 +477,6 @@ func GenerateSimpleTodos() error {
 	}
 	fmt.Println("\n📝 Here are actionable TODOs from your notes:")
 	fmt.Println(todos)
-	fmt.Println("\n💡 Tip: Add your API key with: export ANTHROPIC_API_KEY=your_key_here")
 	return nil
 }
 
