@@ -1,3 +1,5 @@
+version: 2
+
 project_name: river
 
 before:
@@ -6,7 +8,7 @@ before:
 
 builds:
   - id: river
-    main: ./main.go
+    main: .
     binary: river
     env:
       - CGO_ENABLED=0
@@ -28,8 +30,8 @@ archives:
     
 release:
   github:
-    owner: mpwhite
-    name: river-go
+    owner: MPWhite
+    name: river
   
   name_template: "v{{.Version}}"
   
