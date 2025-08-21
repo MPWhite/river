@@ -1,0 +1,26 @@
+# Go source files
+*.go
+go.mod
+go.sum
+
+# Build artifacts
+/river
+*.exe
+
+# Development files
+.goreleaser.yml
+Makefile
+.github/
+.git/
+
+# Documentation source
+docs/
+*.md
+!README.md
+
+# Test files
+*_test.go
+testdata/
+
+# Local notes
+~/river/

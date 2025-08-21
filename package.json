@@ -1,0 +1,29 @@
+{
+  "name": "river-journal",
+  "version": "0.0.1",
+  "description": "A minimalist daily journaling application with AI-powered insights",
+  "keywords": ["journal", "cli", "productivity", "writing", "terminal"],
+  "author": "mpwhite",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/river-go.git"
+  },
+  "bin": {
+    "river": "./bin/river.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/install.js",
+    "preuninstall": "node scripts/uninstall.js"
+  },
+  "files": [
+    "bin/",
+    "scripts/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "os": ["darwin", "linux", "win32"],
+  "cpu": ["x64", "arm64"]
+}

@@ -1,0 +1,47 @@
+project_name: river
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: river
+    main: ./main.go
+    binary: river
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - id: river
+    name_template: "river-{{ .Os }}-{{ .Arch }}"
+    format: binary
+    
+release:
+  github:
+    owner: mpwhite
+    name: river-go
+  
+  name_template: "v{{.Version}}"
+  
+checksum:
+  name_template: 'checksums.txt'
+  
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+  
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
