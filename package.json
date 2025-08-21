@@ -1,5 +1,5 @@
 {
-  "name": "@mpwhite/river",
+  "name": "river-writer",
   "version": "0.0.1",
   "description": "A minimalist daily journaling application with AI-powered insights",
   "keywords": ["journal", "cli", "productivity", "writing", "terminal"],
