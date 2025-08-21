@@ -22,15 +22,11 @@ river analyze
 
 # Extract TODOs from notes
 river think
+
+# Generate fresh journal prompts based on recent entries
+river prompts
 ```
 
-## Features
-
-- Daily note management with automatic file creation
-- Real-time word count and typing time tracking
-- Writing streaks and productivity metrics
-- AI-powered analysis (requires `ANTHROPIC_API_KEY`)
-- Distraction-free terminal interface
 
 ## Requirements
 
