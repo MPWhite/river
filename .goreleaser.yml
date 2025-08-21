@@ -8,7 +8,7 @@ before:
 
 builds:
   - id: river
-    main: .
+    main: ./cmd/river
     binary: river
     env:
       - CGO_ENABLED=0
