@@ -1,12 +1,12 @@
 # Publishing River as an NPM Package
 
-This guide explains how to publish your Go binary as an npm package for easy installation via `npm install -g river-journal`.
+This guide explains how to publish your Go binary as an npm package for easy installation via `npm install -g @mpwhite/river`.
 
 ## Setup Steps
 
 ### 1. Update Package Configuration
 Edit `package.json`:
-- Change the `name` field if "river-journal" is taken
+- The package is named `@mpwhite/river` (scoped package)
 - Update `repository.url` with your GitHub repository
 - Add your name to the `author` field
 - Adjust version as needed
@@ -45,7 +45,7 @@ This creates a GitHub release with pre-built binaries for all platforms.
 Test the npm package locally:
 ```bash
 npm pack
-npm install -g river-journal-1.0.0.tgz
+npm install -g mpwhite-river-0.0.1.tgz
 river
 ```
 
@@ -66,7 +66,7 @@ npm publish
 ## How It Works
 
 1. **Installation Flow**:
-   - User runs `npm install -g river-journal`
+   - User runs `npm install -g @mpwhite/river`
    - npm installs the package globally
    - `postinstall` script runs automatically
    - Script attempts to download pre-built binary from GitHub releases

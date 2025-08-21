@@ -8,8 +8,8 @@ const { promisify } = require('util');
 const stream = require('stream');
 const pipeline = promisify(stream.pipeline);
 
-const REPO_OWNER = 'mpwhite';
-const REPO_NAME = 'river-go';
+const REPO_OWNER = 'MPWhite';
+const REPO_NAME = 'river';
 const BINARY_NAME = 'river';
 
 async function getPlatformBinary() {
