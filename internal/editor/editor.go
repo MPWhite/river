@@ -211,7 +211,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Calculate textarea size
 		promptHeight := 0
 		if m.prompt != "" {
-			promptHeight = 4 // Prompt box
+			// Calculate actual height of prompt box with wrapping
+			// We need to render the prompt to get accurate height
+			promptBoxWidth := m.width - 6
+			if promptBoxWidth > 0 {
+				promptBox := lipgloss.NewStyle().
+					Border(lipgloss.RoundedBorder()).
+					BorderForeground(lipgloss.Color("62")).
+					Foreground(lipgloss.Color("251")).
+					Padding(0, 2).
+					Width(promptBoxWidth)
+				promptDisplay := promptBox.Render("💭 " + m.prompt)
+				promptHeight = lipgloss.Height(promptDisplay) + 1 // Add margin
+			} else {
+				promptHeight = 4 // Default
+			}
 		}
 		progressHeight := 2 // Progress bar only
 
@@ -274,11 +288,14 @@ func (m Model) View() string {
 			BorderForeground(lipgloss.Color("62")).
 			Foreground(lipgloss.Color("251")).
 			Padding(0, 2).
-			Margin(0, 2).
 			Width(m.width - 6)
 
 		promptDisplay := promptBox.Render("💭 " + m.prompt)
-		parts = append(parts, promptDisplay)
+		// Add margin after rendering to avoid top border cutoff
+		promptWithMargin := lipgloss.NewStyle().
+			Margin(0, 2, 0, 2).
+			Render(promptDisplay)
+		parts = append(parts, promptWithMargin)
 	}
 
 	// Editor

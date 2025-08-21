@@ -422,7 +422,7 @@ func CallAnthropicForStatsInsights(stats AggregatedStats, recentNotes string) (s
 // Public command helpers (CLI-facing)
 func GenerateTodos() error {
 	fmt.Println("🤔 Thinking about your recent notes...")
-	notes, err := getRecentNotes(3)
+	notes, err := getRecentNotes(10)
 	if err != nil {
 		return fmt.Errorf("error reading recent notes: %v", err)
 	}
@@ -430,7 +430,7 @@ func GenerateTodos() error {
 		fmt.Println("📝 No recent notes found. Try writing some thoughts first!")
 		return nil
 	}
-	fmt.Println("📖 Analyzing notes from the last 3 days...")
+	fmt.Println("📖 Analyzing notes from the last 10 days...")
 	todos, err := callAnthropic(notes)
 	if err != nil {
 		return fmt.Errorf("error calling AI: %v", err)
@@ -442,7 +442,7 @@ func GenerateTodos() error {
 
 func GenerateInsights() error {
 	fmt.Println("🔍 Analyzing your recent notes for insights...")
-	notes, err := getRecentNotes(3)
+	notes, err := getRecentNotes(10)
 	if err != nil {
 		return fmt.Errorf("error reading recent notes: %v", err)
 	}
@@ -462,7 +462,7 @@ func GenerateInsights() error {
 
 func GenerateSimpleTodos() error {
 	fmt.Println("📋 Extracting TODOs from your recent notes...")
-	notes, err := getRecentNotes(3)
+	notes, err := getRecentNotes(10)
 	if err != nil {
 		return fmt.Errorf("error reading recent notes: %v", err)
 	}
@@ -482,7 +482,7 @@ func GenerateSimpleTodos() error {
 
 func GeneratePrompts() error {
 	fmt.Println("✨ Creating personalized prompts based on your recent writing...")
-	notes, err := getRecentNotes(7)
+	notes, err := getRecentNotes(10)
 	if err != nil {
 		return fmt.Errorf("error reading recent notes: %v", err)
 	}
@@ -490,7 +490,7 @@ func GeneratePrompts() error {
 		fmt.Println("📝 No recent notes found. Try writing some thoughts first!")
 		return nil
 	}
-	fmt.Println("🔮 Analyzing your journal entries from the last week...")
+	fmt.Println("🔮 Analyzing your journal entries from the last 10 days...")
 	prompts, err := callAnthropicForPrompts(notes)
 	if err != nil {
 		return fmt.Errorf("error calling AI: %v", err)
