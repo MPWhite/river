@@ -4,8 +4,15 @@ A minimalist daily journaling CLI with AI-powered insights.
 
 ## Installation
 
+### npm
 ```bash
 npm install -g river-writer
+```
+
+### Build from source
+```bash
+go build
+./river
 ```
 
 ## Usage
