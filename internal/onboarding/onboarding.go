@@ -200,10 +200,7 @@ func RunOnboarding() error {
 // Simple CLI version for non-interactive environments
 func RunCLIOnboarding() error {
 	fmt.Println("🌊 Welcome to River")
-	fmt.Println("\nRiver can use AI to generate personalized journal prompts,")
-	fmt.Println("extract TODOs, and provide insights from your notes.")
-	fmt.Println("\nTo enable these features, you'll need an Anthropic API key.")
-	fmt.Println("Get one at: https://console.anthropic.com/settings/keys")
+	fmt.Println("\n If you'd like to use AI features, please provide an Anthropic API key")
 	fmt.Print("\nEnter your Anthropic API key (or press Enter to skip): ")
 
 	reader := bufio.NewReader(os.Stdin)

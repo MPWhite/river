@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/mattwhite/river-go/internal/onboarding"
 )
 
 // loadAPIKey loads the API key from environment or config file
@@ -93,6 +94,8 @@ func callAnthropic(prompt string) (string, error) {
 	if apiKey == "" {
 		return "", fmt.Errorf("No API key found. Run 'river onboard' to set up AI features")
 	}
+	// Set the API key in environment for the client
+	os.Setenv("ANTHROPIC_API_KEY", apiKey)
 	client := anthropic.NewClient()
 	systemPrompt := `You are an AI assistant helping with personal productivity. Based on the provided notes from the last few days, generate organized lists of TODOs in different categories.
 
@@ -159,6 +162,8 @@ func callAnthropicForInsights(prompt string) (string, error) {
 	if apiKey == "" {
 		return "", fmt.Errorf("No API key found. Run 'river onboard' to set up AI features")
 	}
+	// Set the API key in environment for the client
+	os.Setenv("ANTHROPIC_API_KEY", apiKey)
 	client := anthropic.NewClient()
 	systemPrompt := `You are an AI assistant specialized in analyzing personal notes to identify patterns, themes, and insights. Based on the provided notes from the last few days, provide a thoughtful analysis.
 
@@ -215,24 +220,41 @@ func callAnthropicForSimpleTodos(prompt string) (string, error) {
 	if apiKey == "" {
 		return "", fmt.Errorf("No API key found. Run 'river onboard' to set up AI features")
 	}
+	// Set the API key in environment for the client
+	os.Setenv("ANTHROPIC_API_KEY", apiKey)
 	client := anthropic.NewClient()
-	systemPrompt := `You are an AI assistant that extracts actionable TODOs from personal notes. Based on the provided notes, identify clear, specific tasks that need to be completed.
+	systemPrompt := `Extract ONLY the most concrete, actionable TODOs from the notes. Be extremely selective - only include items that:
 
-Focus on:
-- Explicit tasks mentioned (things to do, call, buy, schedule, etc.)
-- Incomplete projects or commitments
-- Follow-ups needed with people
-- Deadlines or time-sensitive items
-- Ideas that require action to move forward
-- Problems mentioned that need solutions
+1. Are EXPLICITLY mentioned as tasks, commitments, or things to do
+2. Have a clear, specific action (call someone, buy something, schedule something, send something)
+3. Can be completed in a single, definable action
 
-For each TODO, include:
-1. A clear, actionable description
-2. Brief context from the notes explaining why this is needed (in parentheses)
+DO NOT include:
+- Vague goals or aspirations
+- Things to "think about" or "consider"
+- Emotional work or self-improvement items
+- Ideas without clear next steps
 
-Format as a simple numbered list. Be specific and concrete - avoid vague items. Only include things that are genuinely actionable. If no clear TODOs can be identified, say so and suggest that the person might want to be more explicit about action items in future notes.
+Format each TODO as:
+• [ACTION VERB] [SPECIFIC TASK]
 
-Keep the list focused and practical - aim for quality over quantity.`
+Examples of GOOD todos:
+• Call dentist to schedule cleaning
+• Send Q4 report to Sarah
+• Buy new running shoes
+• Schedule meeting with product team
+• Submit expense report for conference
+
+Examples of BAD todos (do not include):
+• Think about career goals
+• Be more organized
+• Work on project
+• Improve communication
+• Consider new strategies
+
+Keep the list SHORT (max 10 items). If there are no truly actionable items, return "No specific action items found in recent notes."
+
+Sort by urgency/importance when possible.`
 	userPrompt := fmt.Sprintf("Here are my notes from the last few days:\n\n%s\n\nPlease extract actionable TODOs from these notes.", prompt)
 	ctx := context.Background()
 	response, err := client.Messages.New(ctx, anthropic.MessageNewParams{
@@ -263,6 +285,8 @@ func callAnthropicForPrompts(notes string) ([]string, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("No API key found. Run 'river onboard' to set up AI features")
 	}
+	// Set the API key in environment for the client
+	os.Setenv("ANTHROPIC_API_KEY", apiKey)
 	client := anthropic.NewClient()
 	systemPrompt := `You are an AI assistant that creates personalized journal prompts based on someone's recent journal entries. Your goal is to help them reflect more deeply, explore unresolved thoughts, and continue their personal growth journey.
 
@@ -337,6 +361,8 @@ func callAnthropicForStatsInsights(stats AggregatedStats, recentNotes string) (s
 	if apiKey == "" {
 		return "", fmt.Errorf("No API key found. Run 'river onboard' to set up AI features")
 	}
+	// Set the API key in environment for the client
+	os.Setenv("ANTHROPIC_API_KEY", apiKey)
 	client := anthropic.NewClient()
 	statsSummary := fmt.Sprintf(`Writing Statistics Summary:
 - Total Words Written: %d
@@ -433,6 +459,21 @@ func GenerateTodos() error {
 	fmt.Println("📖 Analyzing notes from the last 10 days...")
 	todos, err := callAnthropic(notes)
 	if err != nil {
+		if strings.Contains(err.Error(), "No API key found") {
+			fmt.Println("\n🔑 API key not configured. Let's set it up now...\n")
+			if err := onboarding.RunOnboarding(); err != nil {
+				return fmt.Errorf("onboarding failed: %v", err)
+			}
+			// Try again after onboarding
+			fmt.Println("\n🔄 Retrying with your new API key...")
+			todos, err = callAnthropic(notes)
+			if err != nil {
+				return fmt.Errorf("error calling AI: %v", err)
+			}
+			fmt.Println("\n✨ Here are some TODOs based on your recent notes:")
+			fmt.Println(todos)
+			return nil
+		}
 		return fmt.Errorf("error calling AI: %v", err)
 	}
 	fmt.Println("\n✨ Here are some TODOs based on your recent notes:")
@@ -453,6 +494,21 @@ func GenerateInsights() error {
 	fmt.Println("🧠 Identifying patterns and themes...")
 	insights, err := callAnthropicForInsights(notes)
 	if err != nil {
+		if strings.Contains(err.Error(), "No API key found") {
+			fmt.Println("\n🔑 API key not configured. Let's set it up now...\n")
+			if err := onboarding.RunOnboarding(); err != nil {
+				return fmt.Errorf("onboarding failed: %v", err)
+			}
+			// Try again after onboarding
+			fmt.Println("\n🔄 Retrying with your new API key...")
+			insights, err = callAnthropicForInsights(notes)
+			if err != nil {
+				return fmt.Errorf("error calling AI: %v", err)
+			}
+			fmt.Println("\n💡 Here are insights from your recent notes:")
+			fmt.Println(insights)
+			return nil
+		}
 		return fmt.Errorf("error calling AI: %v", err)
 	}
 	fmt.Println("\n💡 Here are insights from your recent notes:")
@@ -462,7 +518,7 @@ func GenerateInsights() error {
 
 func GenerateSimpleTodos() error {
 	fmt.Println("📋 Extracting TODOs from your recent notes...")
-	notes, err := getRecentNotes(10)
+	notes, err := getRecentNotes(15)
 	if err != nil {
 		return fmt.Errorf("error reading recent notes: %v", err)
 	}
@@ -470,12 +526,27 @@ func GenerateSimpleTodos() error {
 		fmt.Println("📝 No recent notes found. Try writing some thoughts first!")
 		return nil
 	}
-	fmt.Println("✅ Identifying actionable items...")
+	fmt.Println("✅ Analyzing last 15 days of notes...")
 	todos, err := callAnthropicForSimpleTodos(notes)
 	if err != nil {
+		if strings.Contains(err.Error(), "No API key found") {
+			fmt.Println("\n🔑 API key not configured. Let's set it up now...\n")
+			if err := onboarding.RunOnboarding(); err != nil {
+				return fmt.Errorf("onboarding failed: %v", err)
+			}
+			// Try again after onboarding
+			fmt.Println("\n🔄 Retrying with your new API key...")
+			todos, err = callAnthropicForSimpleTodos(notes)
+			if err != nil {
+				return fmt.Errorf("error calling AI: %v", err)
+			}
+			fmt.Println("\n📝 ACTION ITEMS:\n")
+			fmt.Println(todos)
+			return nil
+		}
 		return fmt.Errorf("error calling AI: %v", err)
 	}
-	fmt.Println("\n📝 Here are actionable TODOs from your notes:")
+	fmt.Println("\n📝 ACTION ITEMS:\n")
 	fmt.Println(todos)
 	return nil
 }
@@ -493,8 +564,23 @@ func GeneratePrompts() error {
 	fmt.Println("🔮 Analyzing your journal entries from the last 10 days...")
 	prompts, err := callAnthropicForPrompts(notes)
 	if err != nil {
+		if strings.Contains(err.Error(), "No API key found") {
+			fmt.Println("\n🔑 API key not configured. Let's set it up now...\n")
+			if err := onboarding.RunOnboarding(); err != nil {
+				return fmt.Errorf("onboarding failed: %v", err)
+			}
+			// Try again after onboarding
+			fmt.Println("\n🔄 Retrying with your new API key...")
+			prompts, err = callAnthropicForPrompts(notes)
+			if err != nil {
+				return fmt.Errorf("error calling AI: %v", err)
+			}
+			// Continue with the rest of the function
+			goto ProcessPrompts
+		}
 		return fmt.Errorf("error calling AI: %v", err)
 	}
+ProcessPrompts:
 	fmt.Println("\n🌟 Here are personalized journal prompts based on your recent reflections:\n")
 	for i, prompt := range prompts {
 		fmt.Printf("%d. %s\n\n", i+1, prompt)
