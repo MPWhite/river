@@ -133,7 +133,7 @@ func saveAPIKey(apiKey string) error {
 	}
 
 	configPath := filepath.Join(riverDir, ".config")
-	
+
 	// Read existing config if it exists
 	existingConfig := make(map[string]string)
 	if data, err := os.ReadFile(configPath); err == nil {

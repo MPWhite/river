@@ -82,7 +82,7 @@ func getPromptForToday() string {
 	homeDir, _ := os.UserHomeDir()
 	riverDir := filepath.Join(homeDir, "river", "notes")
 	promptsFile := filepath.Join(riverDir, ".prompts")
-	
+
 	// Check if prompts file exists and was generated recently (within 7 days)
 	fileInfo, err := os.Stat(promptsFile)
 	if err == nil {
@@ -93,7 +93,7 @@ func getPromptForToday() string {
 			if err == nil {
 				lines := strings.Split(string(data), "\n")
 				var prompts []string
-				
+
 				for _, line := range lines {
 					// Skip header line and empty lines
 					if strings.HasPrefix(line, "#") || strings.TrimSpace(line) == "" {
@@ -107,7 +107,7 @@ func getPromptForToday() string {
 						}
 					}
 				}
-				
+
 				if len(prompts) > 0 {
 					// Use day of year modulo number of prompts to select one
 					dayOfYear := time.Now().YearDay()
@@ -116,7 +116,7 @@ func getPromptForToday() string {
 			}
 		}
 	}
-	
+
 	// Fallback to default prompts if no AI prompts available
 	defaultPrompts := []string{
 		"What are three things you're grateful for today?",

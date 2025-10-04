@@ -134,14 +134,14 @@ type stats struct {
 }
 
 type noteData struct {
-	date  time.Time
-	words int
-	hour  int
-	text  string
-	sentiment  float64
-	anxiety    float64
+	date        time.Time
+	words       int
+	hour        int
+	text        string
+	sentiment   float64
+	anxiety     float64
 	readability float64
-	emotions   map[string]int
+	emotions    map[string]int
 }
 
 type weekData struct {
@@ -470,189 +470,255 @@ func (m Model) renderTodayProgress() string {
 // --- New dashboard rendering helpers ---
 
 func (m Model) renderDashboardHeader() string {
-    if m.stats == nil { return "" }
-    start := m.stats.startDate
-    if start.IsZero() && len(m.stats.notes) > 0 {
-        start = m.stats.notes[0].date
-    }
-    end := m.stats.endDate
-    if end.IsZero() { end = time.Now() }
-    rangeText := fmt.Sprintf("Range: %s to %s  Entries: %d",
-        start.Format("2006-01-02"), end.Format("2006-01-02"), len(m.stats.notes))
-    return lipgloss.NewStyle().Foreground(subtle).Render(rangeText)
+	if m.stats == nil {
+		return ""
+	}
+	start := m.stats.startDate
+	if start.IsZero() && len(m.stats.notes) > 0 {
+		start = m.stats.notes[0].date
+	}
+	end := m.stats.endDate
+	if end.IsZero() {
+		end = time.Now()
+	}
+	rangeText := fmt.Sprintf("Range: %s to %s  Entries: %d",
+		start.Format("2006-01-02"), end.Format("2006-01-02"), len(m.stats.notes))
+	return lipgloss.NewStyle().Foreground(subtle).Render(rangeText)
 }
 
 func (m Model) renderEntriesHeatmap(weeks int) string {
-    if weeks <= 0 { weeks = 16 }
-    cols := weeks
-    rows := 4
-    // build grid last cols*rows weeks (approx days)
-    totalDays := cols * 7
-    start := time.Now().AddDate(0,0,-totalDays+1)
-    // map
-    noteMap := map[string]int{}
-    for _, n := range m.stats.notes { noteMap[n.date.Format("2006-01-02")] = n.words }
-    var b strings.Builder
-    b.WriteString(lipgloss.NewStyle().Foreground(highlight).Bold(true).Render("Entries by Day")+"\n")
-    // Render rows by week rows stacked like GitHub calendar simplified
-    for r := 0; r < rows; r++ {
-        // Month label progresses by months to resemble the mock
-        month := start.AddDate(0,r,0).Format("Jan")
-        b.WriteString(fmt.Sprintf("%s ", month))
-        for c := 0; c < cols; c++ {
-            d := start.AddDate(0,0,c*7+r)
-            key := d.Format("2006-01-02")
-            words := noteMap[key]
-            cell := "▁"
-            color := lipgloss.Color("238")
-            switch {
-            case words == 0:
-                color = lipgloss.Color("238")
-                cell = "·"
-            case words < 200:
-                color = lipgloss.Color("24")
-                cell = "▂"
-            case words < 500:
-                color = lipgloss.Color("31")
-                cell = "▃"
-            case words < 800:
-                color = lipgloss.Color("37")
-                cell = "▅"
-            default:
-                color = lipgloss.Color("43")
-                cell = "█"
-            }
-            b.WriteString(lipgloss.NewStyle().Foreground(color).Render(cell))
-            b.WriteString(" ")
-        }
-        b.WriteString("\n")
-    }
-    legend := lipgloss.NewStyle().Foreground(subtle).Render("none  low  med  high")
-    return lipgloss.JoinVertical(lipgloss.Left, b.String(), legend)
+	if weeks <= 0 {
+		weeks = 16
+	}
+	cols := weeks
+	rows := 4
+	// build grid last cols*rows weeks (approx days)
+	totalDays := cols * 7
+	start := time.Now().AddDate(0, 0, -totalDays+1)
+	// map
+	noteMap := map[string]int{}
+	for _, n := range m.stats.notes {
+		noteMap[n.date.Format("2006-01-02")] = n.words
+	}
+	var b strings.Builder
+	b.WriteString(lipgloss.NewStyle().Foreground(highlight).Bold(true).Render("Entries by Day") + "\n")
+	// Render rows by week rows stacked like GitHub calendar simplified
+	for r := 0; r < rows; r++ {
+		// Month label progresses by months to resemble the mock
+		month := start.AddDate(0, r, 0).Format("Jan")
+		b.WriteString(fmt.Sprintf("%s ", month))
+		for c := 0; c < cols; c++ {
+			d := start.AddDate(0, 0, c*7+r)
+			key := d.Format("2006-01-02")
+			words := noteMap[key]
+			cell := "▁"
+			color := lipgloss.Color("238")
+			switch {
+			case words == 0:
+				color = lipgloss.Color("238")
+				cell = "·"
+			case words < 200:
+				color = lipgloss.Color("24")
+				cell = "▂"
+			case words < 500:
+				color = lipgloss.Color("31")
+				cell = "▃"
+			case words < 800:
+				color = lipgloss.Color("37")
+				cell = "▅"
+			default:
+				color = lipgloss.Color("43")
+				cell = "█"
+			}
+			b.WriteString(lipgloss.NewStyle().Foreground(color).Render(cell))
+			b.WriteString(" ")
+		}
+		b.WriteString("\n")
+	}
+	legend := lipgloss.NewStyle().Foreground(subtle).Render("none  low  med  high")
+	return lipgloss.JoinVertical(lipgloss.Left, b.String(), legend)
 }
 
 func (m Model) renderWordCountSpark() string {
-    title := lipgloss.NewStyle().Foreground(highlight).Bold(true).Render("Word Count")
-    series := m.stats.wordsSeries
-    if len(series) == 0 { return title }
-    spark := renderSpark(series, 40)
-    // compute 30 and 50 day averages when available
-    avgN := func(n int) int {
-        if len(series) == 0 { return 0 }
-        if n > len(series) { n = len(series) }
-        sum := 0
-        for i := len(series)-n; i < len(series); i++ { if i >= 0 { sum += series[i] } }
-        if n == 0 { return 0 }
-        return sum / n
-    }
-    avg30 := avgN(30)
-    avg50 := avgN(50)
-    meta := lipgloss.NewStyle().Foreground(subtle).Render(fmt.Sprintf("%d→%d-day avg", avg30, avg50))
-    return lipgloss.JoinVertical(lipgloss.Left, title, spark+"  "+meta)
+	title := lipgloss.NewStyle().Foreground(highlight).Bold(true).Render("Word Count")
+	series := m.stats.wordsSeries
+	if len(series) == 0 {
+		return title
+	}
+	spark := renderSpark(series, 40)
+	// compute 30 and 50 day averages when available
+	avgN := func(n int) int {
+		if len(series) == 0 {
+			return 0
+		}
+		if n > len(series) {
+			n = len(series)
+		}
+		sum := 0
+		for i := len(series) - n; i < len(series); i++ {
+			if i >= 0 {
+				sum += series[i]
+			}
+		}
+		if n == 0 {
+			return 0
+		}
+		return sum / n
+	}
+	avg30 := avgN(30)
+	avg50 := avgN(50)
+	meta := lipgloss.NewStyle().Foreground(subtle).Render(fmt.Sprintf("%d→%d-day avg", avg30, avg50))
+	return lipgloss.JoinVertical(lipgloss.Left, title, spark+"  "+meta)
 }
 
 func (m Model) renderMiniTimeseries(label string, series []float64, width int, suffix string) string {
-    title := lipgloss.NewStyle().Foreground(highlight).Bold(true).Render(label)
-    if len(series) == 0 { return title }
-    scaled := make([]int, len(series))
-    // normalize -1..1 → 0..100
-    for i, v := range series {
-        if v < -1 { v = -1 }
-        if v > 1 { v = 1 }
-        scaled[i] = int((v+1)*50)
-    }
-    spark := renderSpark(scaled, width)
-    metaText := ""
-    if suffix == "Δ" {
-        delta := 0.0
-        if len(series) > 0 { delta = series[len(series)-1] - series[0] }
-        metaText = fmt.Sprintf("Δ: %.2f", delta)
-    } else {
-        avg := 0.0
-        for _, v := range series { avg += v }
-        avg /= float64(len(series))
-        metaText = fmt.Sprintf("avg: %.2f", avg)
-    }
-    meta := lipgloss.NewStyle().Foreground(subtle).Render(metaText)
-    return lipgloss.JoinVertical(lipgloss.Left, title, spark+"  "+meta)
+	title := lipgloss.NewStyle().Foreground(highlight).Bold(true).Render(label)
+	if len(series) == 0 {
+		return title
+	}
+	scaled := make([]int, len(series))
+	// normalize -1..1 → 0..100
+	for i, v := range series {
+		if v < -1 {
+			v = -1
+		}
+		if v > 1 {
+			v = 1
+		}
+		scaled[i] = int((v + 1) * 50)
+	}
+	spark := renderSpark(scaled, width)
+	metaText := ""
+	if suffix == "Δ" {
+		delta := 0.0
+		if len(series) > 0 {
+			delta = series[len(series)-1] - series[0]
+		}
+		metaText = fmt.Sprintf("Δ: %.2f", delta)
+	} else {
+		avg := 0.0
+		for _, v := range series {
+			avg += v
+		}
+		avg /= float64(len(series))
+		metaText = fmt.Sprintf("avg: %.2f", avg)
+	}
+	meta := lipgloss.NewStyle().Foreground(subtle).Render(metaText)
+	return lipgloss.JoinVertical(lipgloss.Left, title, spark+"  "+meta)
 }
 
 func (m Model) renderReadabilityCard() string {
-    title := lipgloss.NewStyle().Foreground(highlight).Bold(true).Render("Readability")
-    grade := m.stats.avgReadability
-    target := 8
-    text := lipgloss.NewStyle().Foreground(subtle).Render(fmt.Sprintf("grade %.1f (target:%d)", grade, target))
-    return lipgloss.JoinVertical(lipgloss.Left, title, text)
+	title := lipgloss.NewStyle().Foreground(highlight).Bold(true).Render("Readability")
+	grade := m.stats.avgReadability
+	target := 8
+	text := lipgloss.NewStyle().Foreground(subtle).Render(fmt.Sprintf("grade %.1f (target:%d)", grade, target))
+	return lipgloss.JoinVertical(lipgloss.Left, title, text)
 }
 
 func (m Model) renderEmotionBars() string {
-    title := lipgloss.NewStyle().Foreground(highlight).Bold(true).Render("Emotion")
-    if m.stats.emotionTotals == nil { return title }
-    order := []string{"joy","sadness","anger","fear","surprise"}
-    lines := []string{title}
-    sumV := 0
-    for _, k := range order { sumV += m.stats.emotionTotals[k] }
-    if sumV == 0 { sumV = 1 }
-    for _, k := range order {
-        v := m.stats.emotionTotals[k]
-        bar := m.renderSparkBar(v, sumV, 18)
-        lines = append(lines, fmt.Sprintf("%-8s %s %d%%", k, bar, int(float64(v)/float64(sumV)*100)))
-    }
-    return strings.Join(lines, "\n")
+	title := lipgloss.NewStyle().Foreground(highlight).Bold(true).Render("Emotion")
+	if m.stats.emotionTotals == nil {
+		return title
+	}
+	order := []string{"joy", "sadness", "anger", "fear", "surprise"}
+	lines := []string{title}
+	sumV := 0
+	for _, k := range order {
+		sumV += m.stats.emotionTotals[k]
+	}
+	if sumV == 0 {
+		sumV = 1
+	}
+	for _, k := range order {
+		v := m.stats.emotionTotals[k]
+		bar := m.renderSparkBar(v, sumV, 18)
+		lines = append(lines, fmt.Sprintf("%-8s %s %d%%", k, bar, int(float64(v)/float64(sumV)*100)))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m Model) renderWritingTimeBars() string {
-    title := lipgloss.NewStyle().Foreground(highlight).Bold(true).Render("Writing Time")
-    vals := []struct{label string; v int}{
-        {"Morning", m.stats.morningCount},
-        {"Afternoon", m.stats.afternoonCount},
-        {"Evening", m.stats.eveningCount},
-        {"Late Night", m.stats.lateNightCount},
-    }
-    maxV := 1
-    for _, it := range vals { if it.v > maxV { maxV = it.v } }
-    var lines []string
-    lines = append(lines, title)
-    for _, it := range vals {
-        bar := m.renderSparkBar(it.v, maxV, 18)
-        lines = append(lines, fmt.Sprintf("%-10s %s", it.label, bar))
-    }
-    return strings.Join(lines, "\n")
+	title := lipgloss.NewStyle().Foreground(highlight).Bold(true).Render("Writing Time")
+	vals := []struct {
+		label string
+		v     int
+	}{
+		{"Morning", m.stats.morningCount},
+		{"Afternoon", m.stats.afternoonCount},
+		{"Evening", m.stats.eveningCount},
+		{"Late Night", m.stats.lateNightCount},
+	}
+	maxV := 1
+	for _, it := range vals {
+		if it.v > maxV {
+			maxV = it.v
+		}
+	}
+	var lines []string
+	lines = append(lines, title)
+	for _, it := range vals {
+		bar := m.renderSparkBar(it.v, maxV, 18)
+		lines = append(lines, fmt.Sprintf("%-10s %s", it.label, bar))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m Model) renderTopicBars() string {
-    title := lipgloss.NewStyle().Foreground(highlight).Bold(true).Render("Topics")
-    if len(m.stats.topTopics) == 0 { return title }
-    maxV := 1
-    for _, t := range m.stats.topTopics { if t.count > maxV { maxV = t.count } }
-    var lines []string
-    lines = append(lines, title)
-    for _, t := range m.stats.topTopics {
-        bar := m.renderSparkBar(t.count, maxV, 18)
-        lines = append(lines, fmt.Sprintf("%-10s %s", t.term, bar))
-    }
-    return strings.Join(lines, "\n")
+	title := lipgloss.NewStyle().Foreground(highlight).Bold(true).Render("Topics")
+	if len(m.stats.topTopics) == 0 {
+		return title
+	}
+	maxV := 1
+	for _, t := range m.stats.topTopics {
+		if t.count > maxV {
+			maxV = t.count
+		}
+	}
+	var lines []string
+	lines = append(lines, title)
+	for _, t := range m.stats.topTopics {
+		bar := m.renderSparkBar(t.count, maxV, 18)
+		lines = append(lines, fmt.Sprintf("%-10s %s", t.term, bar))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // simple unicode sparkline using blocks
 func renderSpark(series []int, width int) string {
-    if width <= 0 { width = 40 }
-    if len(series) == 0 { return "" }
-    // downsample if needed
-    step := max(1, len(series)/width)
-    minV, maxV := series[0], series[0]
-    for _, v := range series { if v < minV { minV = v }; if v > maxV { maxV = v } }
-    if maxV == minV { maxV = minV + 1 }
-    var b strings.Builder
-    for i := 0; i < len(series); i += step {
-        v := series[i]
-        level := int(float64(v-minV) / float64(maxV-minV) * 7)
-        if level < 0 { level = 0 }
-        if level > 7 { level = 7 }
-        chars := []string{"▁","▂","▃","▄","▅","▆","▇","█"}
-        b.WriteString(chars[level])
-    }
-    return b.String()
+	if width <= 0 {
+		width = 40
+	}
+	if len(series) == 0 {
+		return ""
+	}
+	// downsample if needed
+	step := max(1, len(series)/width)
+	minV, maxV := series[0], series[0]
+	for _, v := range series {
+		if v < minV {
+			minV = v
+		}
+		if v > maxV {
+			maxV = v
+		}
+	}
+	if maxV == minV {
+		maxV = minV + 1
+	}
+	var b strings.Builder
+	for i := 0; i < len(series); i += step {
+		v := series[i]
+		level := int(float64(v-minV) / float64(maxV-minV) * 7)
+		if level < 0 {
+			level = 0
+		}
+		if level > 7 {
+			level = 7
+		}
+		chars := []string{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
+		b.WriteString(chars[level])
+	}
+	return b.String()
 }
 
 func (m Model) renderQuickStats() string {
@@ -1056,7 +1122,7 @@ func (m Model) renderPrompts() string {
 			daysSinceGeneration := int(time.Since(fileInfo.ModTime()).Hours() / 24)
 			freshnessIndicator := "🟢"
 			freshnessText := fmt.Sprintf("Generated %d days ago", daysSinceGeneration)
-			
+
 			if daysSinceGeneration >= 5 {
 				freshnessIndicator = "🟡"
 				freshnessText += " (consider regenerating soon)"
@@ -1170,14 +1236,14 @@ func collectStats() (*stats, error) {
 		}
 
 		notes = append(notes, noteData{
-			date:       date,
-			words:      words,
-			hour:       hour,
-			text:       text,
-			sentiment:  sent,
-			anxiety:    anx,
+			date:        date,
+			words:       words,
+			hour:        hour,
+			text:        text,
+			sentiment:   sent,
+			anxiety:     anx,
 			readability: readGrade,
-			emotions:   em,
+			emotions:    em,
 		})
 
 		dateMap[dateStr] = words
@@ -1274,126 +1340,152 @@ func removeHTMLComments(text string) string {
 // computeReadability returns an approximate US grade level using
 // a simplified Flesch–Kincaid style heuristic. Bounded to 3..12 range.
 func computeReadability(text string) float64 {
-    if text == "" {
-        return 0
-    }
-    words := float64(len(strings.Fields(text)))
-    if words == 0 {
-        return 0
-    }
-    sentences := float64(strings.Count(text, ".") + strings.Count(text, "!" ) + strings.Count(text, "?"))
-    if sentences == 0 {
-        sentences = 1
-    }
-    // crude syllable estimate
-    vowels := 0
-    for _, ch := range strings.ToLower(text) {
-        switch ch {
-        case 'a','e','i','o','u','y':
-            vowels++
-        }
-    }
-    syllables := float64(vowels) * 0.3 // heuristic scaling
-    // FKGL approximation
-    grade := 0.39*(words/sentences) + 11.8*(syllables/words) - 15.59
-    if grade < 3 {
-        grade = 3
-    }
-    if grade > 12 {
-        grade = 12
-    }
-    return grade
+	if text == "" {
+		return 0
+	}
+	words := float64(len(strings.Fields(text)))
+	if words == 0 {
+		return 0
+	}
+	sentences := float64(strings.Count(text, ".") + strings.Count(text, "!") + strings.Count(text, "?"))
+	if sentences == 0 {
+		sentences = 1
+	}
+	// crude syllable estimate
+	vowels := 0
+	for _, ch := range strings.ToLower(text) {
+		switch ch {
+		case 'a', 'e', 'i', 'o', 'u', 'y':
+			vowels++
+		}
+	}
+	syllables := float64(vowels) * 0.3 // heuristic scaling
+	// FKGL approximation
+	grade := 0.39*(words/sentences) + 11.8*(syllables/words) - 15.59
+	if grade < 3 {
+		grade = 3
+	}
+	if grade > 12 {
+		grade = 12
+	}
+	return grade
 }
 
 // analyzeTextSentiment returns simple sentiment/anxiety signals and an emotion map
 // using keyword heuristics to avoid network calls.
 func analyzeTextSentiment(text string) (sentiment float64, anxiety float64, emotions map[string]int) {
-    emotions = map[string]int{"joy":0, "sadness":0, "anger":0, "fear":0, "surprise":0}
-    lower := strings.ToLower(text)
-    posWords := []string{"good","great","love","happy","joy","grateful","proud","excited"}
-    negWords := []string{"bad","sad","angry","upset","tired","frustrated","anxious","worried"}
-    joyWords := []string{"joy","happy","smile","grateful","thanks","love"}
-    sadWords := []string{"sad","down","blue","depressed","cry"}
-    angerWords := []string{"angry","mad","furious","annoyed","irritated"}
-    fearWords := []string{"afraid","scared","worried","anxious","fear"}
-    surpriseWords := []string{"surprised","wow","unexpected","shocked"}
+	emotions = map[string]int{"joy": 0, "sadness": 0, "anger": 0, "fear": 0, "surprise": 0}
+	lower := strings.ToLower(text)
+	posWords := []string{"good", "great", "love", "happy", "joy", "grateful", "proud", "excited"}
+	negWords := []string{"bad", "sad", "angry", "upset", "tired", "frustrated", "anxious", "worried"}
+	joyWords := []string{"joy", "happy", "smile", "grateful", "thanks", "love"}
+	sadWords := []string{"sad", "down", "blue", "depressed", "cry"}
+	angerWords := []string{"angry", "mad", "furious", "annoyed", "irritated"}
+	fearWords := []string{"afraid", "scared", "worried", "anxious", "fear"}
+	surpriseWords := []string{"surprised", "wow", "unexpected", "shocked"}
 
-    score := 0
-    for _, w := range posWords { if strings.Contains(lower, w) { score++ } }
-    for _, w := range negWords { if strings.Contains(lower, w) { score-- } }
-    // normalize to roughly -1..1
-    sentiment = float64(score) / 10.0
+	score := 0
+	for _, w := range posWords {
+		if strings.Contains(lower, w) {
+			score++
+		}
+	}
+	for _, w := range negWords {
+		if strings.Contains(lower, w) {
+			score--
+		}
+	}
+	// normalize to roughly -1..1
+	sentiment = float64(score) / 10.0
 
-    anxCount := 0
-    for _, w := range []string{"anxious","worried","nervous","stress","panic"} {
-        if strings.Contains(lower, w) { anxCount++ }
-    }
-    anxiety = float64(anxCount) / 5.0
+	anxCount := 0
+	for _, w := range []string{"anxious", "worried", "nervous", "stress", "panic"} {
+		if strings.Contains(lower, w) {
+			anxCount++
+		}
+	}
+	anxiety = float64(anxCount) / 5.0
 
-    countContains := func(words []string) int {
-        c := 0
-        for _, w := range words { if strings.Contains(lower, w) { c++ } }
-        return c
-    }
-    emotions["joy"] = countContains(joyWords)
-    emotions["sadness"] = countContains(sadWords)
-    emotions["anger"] = countContains(angerWords)
-    emotions["fear"] = countContains(fearWords)
-    emotions["surprise"] = countContains(surpriseWords)
-    return
+	countContains := func(words []string) int {
+		c := 0
+		for _, w := range words {
+			if strings.Contains(lower, w) {
+				c++
+			}
+		}
+		return c
+	}
+	emotions["joy"] = countContains(joyWords)
+	emotions["sadness"] = countContains(sadWords)
+	emotions["anger"] = countContains(angerWords)
+	emotions["fear"] = countContains(fearWords)
+	emotions["surprise"] = countContains(surpriseWords)
+	return
 }
 
 // buildSeries prepares 60-day series for words, sentiment, anxiety
 func buildSeries(s *stats) {
-    if s == nil || len(s.notes) == 0 { return }
-    // last 60 days
-    end := time.Now()
-    start := end.AddDate(0,0,-60)
-    s.startDate, s.endDate = start, end
-    dayCount := int(end.Sub(start).Hours()/24) + 1
-    s.wordsSeries = make([]int, dayCount)
-    s.sentimentSeries = make([]float64, dayCount)
-    s.anxietySeries = make([]float64, dayCount)
+	if s == nil || len(s.notes) == 0 {
+		return
+	}
+	// last 60 days
+	end := time.Now()
+	start := end.AddDate(0, 0, -60)
+	s.startDate, s.endDate = start, end
+	dayCount := int(end.Sub(start).Hours()/24) + 1
+	s.wordsSeries = make([]int, dayCount)
+	s.sentimentSeries = make([]float64, dayCount)
+	s.anxietySeries = make([]float64, dayCount)
 
-    // map by date
-    dateToNote := map[string]noteData{}
-    for _, n := range s.notes {
-        key := n.date.Format("2006-01-02")
-        dateToNote[key] = n
-    }
-    for i := 0; i < dayCount; i++ {
-        d := start.AddDate(0,0,i)
-        key := d.Format("2006-01-02")
-        if n, ok := dateToNote[key]; ok {
-            s.wordsSeries[i] = n.words
-            s.sentimentSeries[i] = n.sentiment
-            s.anxietySeries[i] = n.anxiety
-        } else {
-            s.wordsSeries[i] = 0
-            s.sentimentSeries[i] = 0
-            s.anxietySeries[i] = 0
-        }
-    }
+	// map by date
+	dateToNote := map[string]noteData{}
+	for _, n := range s.notes {
+		key := n.date.Format("2006-01-02")
+		dateToNote[key] = n
+	}
+	for i := 0; i < dayCount; i++ {
+		d := start.AddDate(0, 0, i)
+		key := d.Format("2006-01-02")
+		if n, ok := dateToNote[key]; ok {
+			s.wordsSeries[i] = n.words
+			s.sentimentSeries[i] = n.sentiment
+			s.anxietySeries[i] = n.anxiety
+		} else {
+			s.wordsSeries[i] = 0
+			s.sentimentSeries[i] = 0
+			s.anxietySeries[i] = 0
+		}
+	}
 }
 
 func extractTopTopics(notes []noteData) []topicScore {
-    freq := map[string]int{}
-    stop := map[string]struct{}{"the":{},"and":{},"to":{},"a":{},"of":{},"in":{},"for":{},"it":{},"is":{},"on":{}}
-    for _, n := range notes {
-        for _, raw := range strings.Fields(strings.ToLower(n.text)) {
-            w := strings.Trim(raw, ".,!?:;()[]\"'")
-            if len(w) < 4 { continue }
-            if _, ok := stop[w]; ok { continue }
-            if strings.HasPrefix(w, "http") { continue }
-            freq[w]++
-        }
-    }
-    // convert and sort
-    var topics []topicScore
-    for k, v := range freq { topics = append(topics, topicScore{term:k, count:v}) }
-    sort.Slice(topics, func(i, j int) bool { return topics[i].count > topics[j].count })
-    if len(topics) > 6 { topics = topics[:6] }
-    return topics
+	freq := map[string]int{}
+	stop := map[string]struct{}{"the": {}, "and": {}, "to": {}, "a": {}, "of": {}, "in": {}, "for": {}, "it": {}, "is": {}, "on": {}}
+	for _, n := range notes {
+		for _, raw := range strings.Fields(strings.ToLower(n.text)) {
+			w := strings.Trim(raw, ".,!?:;()[]\"'")
+			if len(w) < 4 {
+				continue
+			}
+			if _, ok := stop[w]; ok {
+				continue
+			}
+			if strings.HasPrefix(w, "http") {
+				continue
+			}
+			freq[w]++
+		}
+	}
+	// convert and sort
+	var topics []topicScore
+	for k, v := range freq {
+		topics = append(topics, topicScore{term: k, count: v})
+	}
+	sort.Slice(topics, func(i, j int) bool { return topics[i].count > topics[j].count })
+	if len(topics) > 6 {
+		topics = topics[:6]
+	}
+	return topics
 }
 
 func calculateCurrentStreak(dateMap map[string]int) int {

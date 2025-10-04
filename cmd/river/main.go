@@ -8,6 +8,7 @@ import (
 
 	"github.com/mattwhite/river-go/internal/ai"
 	"github.com/mattwhite/river-go/internal/editor"
+	"github.com/mattwhite/river-go/internal/history"
 	"github.com/mattwhite/river-go/internal/onboarding"
 	"github.com/mattwhite/river-go/internal/statsui"
 )
@@ -18,6 +19,7 @@ func printHelp() {
 	fmt.Println("Usage:")
 	fmt.Println("  river              Start the journal editor")
 	fmt.Println("  river stats        View writing statistics dashboard")
+	fmt.Println("  river history      Browse and view previous notes")
 	fmt.Println("  river onboard      Set up AI features (API key)")
 	fmt.Println()
 	fmt.Println("AI Commands (requires API key):")
@@ -49,6 +51,13 @@ func main() {
 		switch os.Args[1] {
 		case "stats":
 			p := tea.NewProgram(statsui.InitModel(), tea.WithAltScreen())
+			if _, err := p.Run(); err != nil {
+				fmt.Printf("Error: %v", err)
+				os.Exit(1)
+			}
+			return
+		case "history":
+			p := tea.NewProgram(history.InitModel(), tea.WithAltScreen())
 			if _, err := p.Run(); err != nil {
 				fmt.Printf("Error: %v", err)
 				os.Exit(1)
