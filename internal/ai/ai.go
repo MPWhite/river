@@ -637,5 +637,65 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dm", minutes)
 }
 
+// GetStatsInsight generates a brief, minimalist insight about writing patterns
+func GetStatsInsight(totalWords, totalEntries, currentStreak, avgWords int, recentNotes string) (string, error) {
+	apiKey := loadAPIKey()
+	if apiKey == "" {
+		return "", fmt.Errorf("No API key found")
+	}
+
+	os.Setenv("ANTHROPIC_API_KEY", apiKey)
+	client := anthropic.NewClient()
+
+	systemPrompt := `You are a minimalist writing coach. Based on the user's stats and recent notes, provide ONE brief, insightful observation.
+
+Rules:
+- Keep it to 1-2 sentences max
+- Be specific and personal, not generic
+- Focus on patterns, momentum, or notable themes
+- Be encouraging but honest
+- No emojis, no bullet points, just plain text
+- Make it feel like a thoughtful observation from a friend
+
+Examples of good insights:
+"You've written consistently for 12 days - your entries have been getting longer and more reflective as the streak continues."
+"Your recent notes show a shift from planning to action, with more concrete tasks emerging naturally."
+"Writing mostly in the evenings seems to be your sweet spot - your word counts are 40% higher after 6pm."
+
+DO NOT use phrases like "Great job!" or "Keep it up!" - instead, make specific observations about their writing.`
+
+	statsContext := fmt.Sprintf("Stats: %d total words, %d entries, %d day streak, %d avg words/entry",
+		totalWords, totalEntries, currentStreak, avgWords)
+
+	userPrompt := fmt.Sprintf("%s\n\nRecent notes (last 3 days):\n%s\n\nProvide one brief insight.", statsContext, recentNotes)
+
+	ctx := context.Background()
+	response, err := client.Messages.New(ctx, anthropic.MessageNewParams{
+		Model:     "claude-3-haiku-20240307",
+		MaxTokens: 150,
+		System:    []anthropic.TextBlockParam{{Text: systemPrompt, Type: "text"}},
+		Messages: []anthropic.MessageParam{{
+			Role:    anthropic.MessageParamRoleUser,
+			Content: []anthropic.ContentBlockParamUnion{{OfText: &anthropic.TextBlockParam{Text: userPrompt, Type: "text"}}},
+		}},
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	if len(response.Content) == 0 {
+		return "", fmt.Errorf("no response content")
+	}
+
+	for _, content := range response.Content {
+		if content.Type == "text" && content.Text != "" {
+			return strings.TrimSpace(content.Text), nil
+		}
+	}
+
+	return "", fmt.Errorf("unexpected response format")
+}
+
 // Convenience function for statsui to pull recent notes text (last 7 days)
 // (kept above; avoid duplicate definitions)

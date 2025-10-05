@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattwhite/river-go/internal/ai"
 )
 
 const (
@@ -28,8 +29,55 @@ var (
 	colorBackground = lipgloss.AdaptiveColor{Light: "#F5F5F5", Dark: "#1A1A1A"}
 )
 
+type zoomLevel int
+
+const (
+	zoom3Days zoomLevel = iota
+	zoom7Days
+	zoom30Days
+	zoom90Days
+	zoomAll
+)
+
+func (z zoomLevel) String() string {
+	switch z {
+	case zoom3Days:
+		return "3 days"
+	case zoom7Days:
+		return "7 days"
+	case zoom30Days:
+		return "30 days"
+	case zoom90Days:
+		return "90 days"
+	case zoomAll:
+		return "all time"
+	default:
+		return ""
+	}
+}
+
+func (z zoomLevel) Days() int {
+	switch z {
+	case zoom3Days:
+		return 3
+	case zoom7Days:
+		return 7
+	case zoom30Days:
+		return 30
+	case zoom90Days:
+		return 90
+	case zoomAll:
+		return 0 // 0 means all
+	default:
+		return 3
+	}
+}
+
 type keyMap struct {
-	Quit key.Binding
+	Quit     key.Binding
+	ZoomIn   key.Binding
+	ZoomOut  key.Binding
+	Refresh  key.Binding
 }
 
 var keys = keyMap{
@@ -37,14 +85,28 @@ var keys = keyMap{
 		key.WithKeys("q", "ctrl+c", "esc"),
 		key.WithHelp("q", "quit"),
 	),
+	ZoomIn: key.NewBinding(
+		key.WithKeys("-", "left"),
+		key.WithHelp("-/←", "zoom in"),
+	),
+	ZoomOut: key.NewBinding(
+		key.WithKeys("=", "right"),
+		key.WithHelp("=/→", "zoom out"),
+	),
+	Refresh: key.NewBinding(
+		key.WithKeys("r"),
+		key.WithHelp("r", "refresh insight"),
+	),
 }
 
 type Model struct {
-	width   int
-	height  int
-	loading bool
-	error   error
-	stats   *stats
+	width          int
+	height         int
+	loading        bool
+	error          error
+	stats          *stats
+	zoomLevel      zoomLevel
+	loadingInsight bool
 }
 
 type stats struct {
@@ -56,6 +118,7 @@ type stats struct {
 	currentStreak int
 	avgWords      int
 	last7Days     []dayData
+	insight       string
 }
 
 type entry struct {
@@ -71,7 +134,8 @@ type dayData struct {
 
 func InitModel() Model {
 	return Model{
-		loading: true,
+		loading:   true,
+		zoomLevel: zoom3Days,
 	}
 }
 
@@ -89,6 +153,11 @@ func loadStats() tea.Msg {
 	return statsMsg{stats: stats, err: err}
 }
 
+type insightMsg struct {
+	insight string
+	err     error
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -103,13 +172,122 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.stats = msg.stats
 		}
 
+	case insightMsg:
+		m.loadingInsight = false
+		if msg.err == nil && m.stats != nil {
+			m.stats.insight = msg.insight
+		}
+
 	case tea.KeyMsg:
 		if key.Matches(msg, keys.Quit) {
 			return m, tea.Quit
 		}
+		if key.Matches(msg, keys.ZoomIn) {
+			if m.zoomLevel > zoom3Days {
+				m.zoomLevel--
+				m.loadingInsight = true
+				return m, refreshInsightCmd(m.stats, m.zoomLevel)
+			}
+		}
+		if key.Matches(msg, keys.ZoomOut) {
+			if m.zoomLevel < zoomAll {
+				m.zoomLevel++
+				m.loadingInsight = true
+				return m, refreshInsightCmd(m.stats, m.zoomLevel)
+			}
+		}
+		if key.Matches(msg, keys.Refresh) {
+			m.loadingInsight = true
+			return m, refreshInsightCmd(m.stats, m.zoomLevel)
+		}
 	}
 
 	return m, nil
+}
+
+func refreshInsightCmd(s *stats, zoom zoomLevel) tea.Cmd {
+	return func() tea.Msg {
+		if s == nil {
+			return insightMsg{err: fmt.Errorf("no stats")}
+		}
+
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return insightMsg{err: err}
+		}
+
+		riverDir := filepath.Join(homeDir, "river", "notes")
+		cacheFile := filepath.Join(riverDir, fmt.Sprintf(".insight-cache-%s", zoom.String()))
+
+		// Delete old cache to force refresh
+		os.Remove(cacheFile)
+
+		// Generate new insight
+		days := zoom.Days()
+		if days == 0 {
+			days = 365 // Cap at 1 year for "all time"
+		}
+
+		recentNotes, err := getRecentNotesForDays(days)
+		if err != nil || recentNotes == "" {
+			return insightMsg{err: err}
+		}
+
+		insight, err := ai.GetStatsInsight(s.totalWords, s.totalEntries, s.currentStreak, s.avgWords, recentNotes)
+		if err != nil {
+			return insightMsg{err: err}
+		}
+
+		// Cache the insight
+		_ = os.WriteFile(cacheFile, []byte(insight), 0644)
+
+		return insightMsg{insight: insight}
+	}
+}
+
+func getRecentNotesForDays(days int) (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+
+	riverDir := filepath.Join(homeDir, "river", "notes")
+
+	var allContent strings.Builder
+
+	for i := 0; i < days; i++ {
+		date := time.Now().AddDate(0, 0, -i)
+		dateStr := date.Format("2006-01-02")
+		filename := filepath.Join(riverDir, dateStr+".md")
+
+		content, err := os.ReadFile(filename)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return "", err
+		}
+
+		lines := strings.Split(string(content), "\n")
+		var filteredLines []string
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "<!--") && strings.HasSuffix(trimmed, "-->") {
+				continue
+			}
+			if strings.TrimSpace(line) != "" {
+				filteredLines = append(filteredLines, line)
+			}
+		}
+
+		if len(filteredLines) > 0 {
+			allContent.WriteString(fmt.Sprintf("\n=== %s ===\n", date.Format("Monday, January 2, 2006")))
+			allContent.WriteString(strings.Join(filteredLines, "\n"))
+			allContent.WriteString("\n")
+		}
+	}
+
+	return allContent.String(), nil
 }
 
 func (m Model) View() string {
@@ -172,13 +350,18 @@ func (m Model) renderStats() string {
 	// Last 7 days
 	sections = append(sections, m.renderLast7Days())
 
+	// AI Insight
+	sections = append(sections, "")
+	sections = append(sections, "")
+	sections = append(sections, m.renderInsight())
+
 	// Footer
 	footer := lipgloss.NewStyle().
 		Foreground(colorSubtle).
 		Width(m.width).
 		Align(lipgloss.Center).
 		Padding(2, 0, 0, 0).
-		Render("press q to quit")
+		Render("-/= zoom • r refresh • q quit")
 
 	content := lipgloss.JoinVertical(lipgloss.Left, sections...)
 
@@ -188,7 +371,6 @@ func (m Model) renderStats() string {
 		lipgloss.JoinVertical(lipgloss.Left, content, footer),
 	)
 }
-
 
 func (m Model) renderStreakHero() string {
 	streak := m.stats.currentStreak
@@ -314,6 +496,46 @@ func (m Model) renderLast7Days() string {
 		Render(content)
 }
 
+func (m Model) renderInsight() string {
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorSubtle).
+		Padding(1, 2).
+		Width(60).
+		Align(lipgloss.Left)
+
+	// Zoom level indicator
+	zoomIndicator := lipgloss.NewStyle().
+		Foreground(colorSubtle).
+		Render(fmt.Sprintf("viewing %s", m.zoomLevel.String()))
+
+	var content string
+	if m.loadingInsight {
+		content = lipgloss.NewStyle().
+			Foreground(colorSubtle).
+			Render("generating insight...")
+	} else if m.stats != nil && m.stats.insight != "" {
+		content = lipgloss.NewStyle().
+			Foreground(colorText).
+			Render(m.stats.insight)
+	} else {
+		content = lipgloss.NewStyle().
+			Foreground(colorSubtle).
+			Render("no insights available")
+	}
+
+	boxContent := lipgloss.JoinVertical(
+		lipgloss.Left,
+		content,
+		"",
+		zoomIndicator,
+	)
+
+	return lipgloss.NewStyle().
+		Width(m.width).
+		Align(lipgloss.Center).
+		Render(boxStyle.Render(boxContent))
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // STATS COLLECTION
@@ -398,7 +620,50 @@ func collectStats() (*stats, error) {
 	// Last 7 days
 	s.last7Days = getLast7Days(entryMap, s.firstDate)
 
+	// AI Insight (with caching) - default to 3 days
+	s.insight = loadOrGenerateInsight(s, zoom3Days)
+
 	return s, nil
+}
+
+func loadOrGenerateInsight(s *stats, zoom zoomLevel) string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+
+	riverDir := filepath.Join(homeDir, "river", "notes")
+	cacheFile := filepath.Join(riverDir, fmt.Sprintf(".insight-cache-%s", zoom.String()))
+
+	// Check if cache exists and is recent (less than 6 hours old)
+	if fileInfo, err := os.Stat(cacheFile); err == nil {
+		if time.Since(fileInfo.ModTime()) < 6*time.Hour {
+			if cached, err := os.ReadFile(cacheFile); err == nil {
+				return string(cached)
+			}
+		}
+	}
+
+	// Generate new insight
+	days := zoom.Days()
+	if days == 0 {
+		days = 365 // Cap at 1 year for "all time"
+	}
+
+	recentNotes, err := getRecentNotesForDays(days)
+	if err != nil || recentNotes == "" {
+		return ""
+	}
+
+	insight, err := ai.GetStatsInsight(s.totalWords, s.totalEntries, s.currentStreak, s.avgWords, recentNotes)
+	if err != nil {
+		return ""
+	}
+
+	// Cache the insight
+	_ = os.WriteFile(cacheFile, []byte(insight), 0644)
+
+	return insight
 }
 
 func getLast7Days(entryMap map[string]int, firstDate time.Time) []dayData {
